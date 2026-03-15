@@ -1,12 +1,12 @@
-# 🧠 elephas
+# elephas
 
-Memory and context management system. Handles long-term knowledge synthesis, pattern recognition.
+🧠 Memory and context management system. Handles long-term knowledge synthesis, pattern recognition.
 
 ---
 
 ## 📖 Overview
 
-Elephas handles core responsibilities in the Indigo system. See SKILL.md for operational details.
+Uelephas handles core responsibilities in the Indigo system. See SKILL.md for operational details.
 
 ---
 
