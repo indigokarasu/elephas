@@ -27,7 +27,7 @@ Long-term knowledge graph (Chronicle) maintenance. Ingests structured signals fr
 
 ## 📊 Output & Journals
 
-Produces: Maintains ingestion log, candidate records, merge history, and decision log. Produces consolidated fact records and inference outputs.
+Ingestion logs, candidate records, merge history, and decision log. Consolidated fact records and inference outputs.
 
 ---
 
