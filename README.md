@@ -1,12 +1,12 @@
 # 🐘 elephas
 
-Memory and context management system. Handles long-term knowledge synthesis, pattern recognition, and episodic recall.
+Long-term knowledge graph (Chronicle) maintenance. Ingests structured signals from system journals, resolves entity identity, promotes confirmed facts, and generates inferences.
 
 ---
 
 ## 📖 Overview
 
-Elephas manages memory and context. Stores durable memories, synthesizes long-term knowledge, recognizes patterns, and enables episodic recall.
+Elephas is a core component of the Indigo system. See SKILL.md for operational details.
 
 ---
 
@@ -18,29 +18,15 @@ Elephas manages memory and context. Stores durable memories, synthesizes long-te
 git clone https://github.com/indigokarasu/elephas.git
 ```
 
-### 🛠️ Tool Surface
+### 🛠️ Configuration
 
-```
-elephas.store_memory(content, ...)          💾 Store memory
-elephas.recall(query, ...)                  🧠 Recall memory
-elephas.synthesize_knowledge(...)           🔄 Synthesize knowledge
-elephas.detect_patterns(...)                🔍 Detect patterns
-elephas.get_context(topic, ...)             📚 Get context
-```
+Read `SKILL.md` for:
+- ⚙️ Operational behavior
+- 🔗 Skill cooperation
+- 📋 Tool surface
+- 🔒 Privacy and data handling
 
-### 📤 Output
-
-- **elephas_memory** — Stored memory entries
-- **elephas_synthesis** — Synthesized knowledge
-- **elephas_patterns** — Detected patterns and insights
-
----
-
-## ⚙️ Configuration
-
-Read `SKILL.md` for operational details, memory models, and cooperation with other skills.
-
-Read `references/` for schemas and examples.
+Read `references/` for detailed schemas, heuristics, and examples.
 
 ---
 
