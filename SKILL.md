@@ -40,6 +40,11 @@ Elephas does not own the social graph (Weave), OSINT briefs (Scout), or web rese
 Elephas and Mentor are parallel journal consumers. Elephas reads journals to extract entity knowledge. Mentor reads journals to evaluate skill performance. Neither blocks the other.
 
 
+
+## Functions
+
+
+
 ## Storage layout
 
 ```
