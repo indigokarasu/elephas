@@ -1,14 +1,14 @@
 ---
 name: ocas-elephas
-description: Elephas: long-term knowledge graph (Chronicle) maintenance. Ingests structured signals from system journals, resolves entity identity, promotes confirmed facts, and generates inferences. Trigger phrases: 'what does Chronicle know about', 'query the knowledge graph', 'ingest journals', 'consolidate', 'resolve entity', 'Chronicle status'. Use when querying world knowledge, ingesting signals, running consolidation, resolving entity duplicates, or promoting candidates to confirmed facts.
+source: https://github.com/indigokarasu/elephas
+install: openclaw skill install https://github.com/indigokarasu/elephas
+description: Use when querying Chronicle (the system's long-term knowledge graph), ingesting signals from skill journals, running consolidation passes, resolving entity duplicates, or promoting candidates to confirmed facts. Trigger phrases: 'what does Chronicle know about', 'query the knowledge graph', 'ingest journals', 'consolidate', 'resolve entity', 'Chronicle status'. Do not use for social relationship queries (use Weave), web research (use Sift), or person-focused OSINT (use Scout).
 metadata: {"openclaw":{"emoji":"🐘"}}
 ---
 
 # Elephas
 
-Elephas maintains Chronicle, the system's long-term knowledge graph. It ingests structured signals from skill journals, converts them into candidates, resolves entity identity, promotes confirmed facts, and generates behavioral inferences. The Chronicle database initializes automatically on first use — no manual setup required.
-
-Elephas runs in the background. It does not interact directly with the user except through query and status commands.
+Elephas is the system's long-term memory — the sole writer to Chronicle, the authoritative knowledge graph where entities, relationships, events, and inferences live permanently once confirmed. It ingests structured signals from every skill's journals, scores candidate facts for confidence, resolves identity across possible duplicates, and promotes what survives into durable Chronicle facts with full provenance. The Chronicle database initializes automatically on first use — no manual setup required.
 
 
 ## When to use
@@ -38,11 +38,6 @@ Only Elephas writes to Chronicle. All other skills are read-only consumers.
 Elephas does not own the social graph (Weave), OSINT briefs (Scout), or web research (Sift).
 
 Elephas and Mentor are parallel journal consumers. Elephas reads journals to extract entity knowledge. Mentor reads journals to evaluate skill performance. Neither blocks the other.
-
-
-
-## Functions
-
 
 
 ## Storage layout
@@ -100,41 +95,7 @@ Surface lock errors immediately. Do not retry silently.
 
 Every command that opens the database runs `_ensure_init()` first. No manual init needed on first use.
 
-```python
-import real_ladybug as lb
-from pathlib import Path
-import json
-from datetime import datetime, timezone
-
-ROOT = Path("~/openclaw").expanduser()
-DB_PATH = ROOT / "db/ocas-elephas/chronicle.lbug"
-INTAKE = ROOT / "db/ocas-elephas/intake"
-STAGING = ROOT / "db/ocas-elephas/staging"
-JOURNALS = ROOT / "journals/ocas-elephas"
-CONFIG_PATH = ROOT / "db/ocas-elephas/config.json"
-
-def _open_db(read_only=False):
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    INTAKE.mkdir(parents=True, exist_ok=True)
-    (INTAKE / "processed").mkdir(parents=True, exist_ok=True)
-    STAGING.mkdir(parents=True, exist_ok=True)
-    JOURNALS.mkdir(parents=True, exist_ok=True)
-    _ensure_config()
-    db = lb.Database(str(DB_PATH), read_only=read_only)
-    conn = lb.Connection(db)
-    if not read_only:
-        _ensure_init(conn)
-    return db, conn
-
-def _ensure_init(conn):
-    tables = {row[0] for row in conn.execute("CALL show_tables() RETURN *")}
-    if "Entity" not in tables:
-        _run_ddl(conn)
-
-def _run_ddl(conn):
-    # Full DDL in references/schemas.md
-    pass
-```
+Read `references/init_pattern.md` for the `_open_db` implementation pattern. Full DDL is in `references/schemas.md`.
 
 
 ## Commands
@@ -296,10 +257,12 @@ openclaw cron add --name elephas:deep --schedule "0 4 * * *" --command "elephas.
 public
 
 
-## Reference file map
+## Support file map
 
-File | When to read
-`references/schemas.md` | Before any DDL, query, or data write; before elephas.init
-`references/ontology.md` | When evaluating entity types, relationship types, or identity rules
-`references/ingestion_pipeline.md` | Before elephas.ingest.journals or any consolidation pass
-`references/journal.md` | Before elephas.journal; at end of every run
+| File | When to read |
+|---|---|
+| `references/schemas.md` | Before any DDL, query, or data write; before elephas.init |
+| `references/init_pattern.md` | When implementing _open_db or troubleshooting initialization |
+| `references/ontology.md` | When evaluating entity types, relationship types, or identity rules |
+| `references/ingestion_pipeline.md` | Before elephas.ingest.journals or any consolidation pass |
+| `references/journal.md` | Before elephas.journal; at end of every run |
