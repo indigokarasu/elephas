@@ -50,7 +50,7 @@ Every other skill in the OCAS suite generates signals -- Elephas is what makes t
 
 ## Changelog
 
-### v2.2.1 -- March 27, 2026
+### v2.3.0 -- March 27, 2026
 - Added `elephas.update` command and midnight cron for automatic version-checked self-updates
 
 ### v2.2.0 -- March 22, 2026
