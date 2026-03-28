@@ -119,10 +119,8 @@ elephas.ingest.journals:
 import json, uuid
 from datetime import datetime, timezone
 from pathlib import Path
-import os
 
-OCAS_ROOT = Path(os.environ.get("OCAS_ROOT", "~/openclaw")).expanduser()
-JOURNALS = OCAS_ROOT / "journals/ocas-elephas"
+JOURNALS = Path("~/openclaw/journals/ocas-elephas").expanduser()
 
 def start_run():
     return {
