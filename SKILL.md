@@ -137,6 +137,8 @@ Also report: last consolidation timestamps, pending identity reviews, inference 
 
 **elephas.journal** -- Write Action Journal for the current run. Read `references/journal.md`. Called at end of every consolidation, promotion, merge, or rejection run.
 
+**elephas.update** -- Pull latest skill package from GitHub source. Preserves journals and data.
+
 
 ## Run completion
 
@@ -229,7 +231,7 @@ On first invocation of any Elephas command, run `elephas.init`:
 2. Write default `config.json` with ConfigBase fields if absent
 3. Create `~/openclaw/journals/ocas-elephas/`
 4. Open database with `_open_db()` which auto-creates `chronicle.lbug` and runs DDL if needed
-5. Register cron jobs `elephas:ingest` and `elephas:deep` if not already present (check `openclaw cron list` first)
+5. Register cron jobs `elephas:ingest`, `elephas:deep`, and `elephas:update` if not already present (check `openclaw cron list` first)
 6. Log initialization as a DecisionRecord
 
 
@@ -239,6 +241,7 @@ On first invocation of any Elephas command, run `elephas.init`:
 |---|---|---|---|
 | `elephas:ingest` | cron | `*/15 * * * *` (every 15 min) | `elephas.ingest.journals` then `elephas.consolidate.immediate` |
 | `elephas:deep` | cron | `0 4 * * *` (daily 4am) | `elephas.consolidate.deep` — full identity reconciliation, inference, cleanup |
+| `elephas:update` | cron | `0 0 * * *` (midnight daily) | `elephas.update` |
 
 Cron options: `sessionTarget: isolated`, `lightContext: true`, `wakeMode: next-heartbeat`.
 
@@ -249,7 +252,30 @@ openclaw cron list
 openclaw cron add --name elephas:ingest --schedule "*/15 * * * *" --command "elephas.ingest.journals && elephas.consolidate.immediate" --sessionTarget isolated --lightContext true --wakeMode next-heartbeat --timezone America/Los_Angeles
 # If elephas:deep absent:
 openclaw cron add --name elephas:deep --schedule "0 4 * * *" --command "elephas.consolidate.deep" --sessionTarget isolated --lightContext true --wakeMode next-heartbeat --timezone America/Los_Angeles
+# If elephas:update absent:
+openclaw cron add --name elephas:update --schedule "0 0 * * *" --command "elephas.update" --sessionTarget isolated --lightContext true --timezone America/Los_Angeles
 ```
+
+
+## Self-update
+
+`elephas.update` pulls the latest package from the `source:` URL in this file's frontmatter. Runs silently — no output unless the version changed or an error occurred.
+
+1. Read `source:` from frontmatter → extract `{owner}/{repo}` from URL
+2. Read local version from `skill.json`
+3. Fetch remote version: `gh api "repos/{owner}/{repo}/contents/skill.json" --jq '.content' | base64 -d | python3 -c "import sys,json;print(json.load(sys.stdin)['version'])"`
+4. If remote version equals local version → stop silently
+5. Download and install:
+   ```bash
+   TMPDIR=$(mktemp -d)
+   gh api "repos/{owner}/{repo}/tarball/main" > "$TMPDIR/archive.tar.gz"
+   mkdir "$TMPDIR/extracted"
+   tar xzf "$TMPDIR/archive.tar.gz" -C "$TMPDIR/extracted" --strip-components=1
+   cp -R "$TMPDIR/extracted/"* ./
+   rm -rf "$TMPDIR"
+   ```
+6. On failure → retry once. If second attempt fails, report the error and stop.
+7. Output exactly: `I updated Elephas from version {old} to {new}`
 
 
 ## Visibility
