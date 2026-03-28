@@ -2,7 +2,7 @@
 name: ocas-elephas
 source: https://github.com/indigokarasu/elephas
 install: openclaw skill install https://github.com/indigokarasu/elephas
-description: Use when querying Chronicle (the system's long-term knowledge graph), ingesting signals from skill journals, running consolidation passes, resolving entity duplicates, or promoting candidates to confirmed facts. Trigger phrases: 'what does Chronicle know about', 'query the knowledge graph', 'ingest journals', 'consolidate', 'resolve entity', 'Chronicle status'. Do not use for social relationship queries (use Weave), web research (use Sift), or person-focused OSINT (use Scout).
+description: Use when querying Chronicle (the system's long-term knowledge graph), ingesting signals from skill journals, running consolidation passes, resolving entity duplicates, or promoting candidates to confirmed facts. Trigger phrases: 'what does Chronicle know about', 'query the knowledge graph', 'ingest journals', 'consolidate', 'resolve entity', 'Chronicle status', 'update elephas'. Do not use for social relationship queries (use Weave), web research (use Sift), or person-focused OSINT (use Scout).
 metadata: {"openclaw":{"emoji":"🐘"}}
 ---
 
