@@ -17,5 +17,23 @@
       "~/openclaw/journals/ocas-elephas/",
       "~/openclaw/db/ocas-elephas/"
     ]
-  }
+  },
+  "self_update": {
+    "source": "https://github.com/indigokarasu/elephas",
+    "mechanism": "version-checked tarball from GitHub via gh CLI",
+    "command": "elephas.update",
+    "requires_binaries": [
+      "gh",
+      "tar",
+      "python3"
+    ]
+  },
+  "scheduled_tasks": [
+    {
+      "name": "elephas:update",
+      "schedule": "0 0 * * *",
+      "command": "elephas.update",
+      "description": "Self-update from GitHub source"
+    }
+  ]
 }
