@@ -120,15 +120,15 @@ Note: LadybugDB indexes primary keys automatically. No secondary index DDL is ne
 ```python
 import real_ladybug as lb
 from pathlib import Path
-import os, json, uuid
+import json, uuid
 from datetime import datetime, timezone
 
-OCAS_ROOT = Path(os.environ.get("OCAS_ROOT", "~/openclaw")).expanduser()
-DB_PATH = OCAS_ROOT / "db/ocas-elephas/chronicle.lbug"
-INTAKE = OCAS_ROOT / "db/ocas-elephas/intake"
-STAGING = OCAS_ROOT / "db/ocas-elephas/staging"
-JOURNALS = OCAS_ROOT / "journals/ocas-elephas"
-CONFIG_PATH = OCAS_ROOT / "db/ocas-elephas/config.json"
+OCAS_BASE = Path("~/openclaw").expanduser()
+DB_PATH = OCAS_BASE / "db/ocas-elephas/chronicle.lbug"
+INTAKE = OCAS_BASE / "db/ocas-elephas/intake"
+STAGING = OCAS_BASE / "db/ocas-elephas/staging"
+JOURNALS = OCAS_BASE / "journals/ocas-elephas"
+CONFIG_PATH = OCAS_BASE / "db/ocas-elephas/config.json"
 
 def _open_db(read_only=False):
     """Open connection. Auto-inits schema and directories on first use."""
