@@ -24,10 +24,11 @@ Every other skill in the OCAS suite generates signals -- Elephas is what makes t
 | `elephas.init` | Diagnostic and repair: checks schema, creates missing tables, verifies indexes |
 | `elephas.status` | Chronicle health: entity counts, pending candidates, last consolidation timestamps |
 | `elephas.journal` | Write journal for the current run |
+| `elephas.update` | Pull latest from GitHub source (preserves journals and data) |
 
 ## Setup
 
-`elephas.init` runs automatically on first invocation and creates all required directories, config.json, the Chronicle database, and JSONL files. It also registers the `elephas:ingest` and `elephas:deep` cron jobs. No manual setup is required.
+`elephas.init` runs automatically on first invocation and creates all required directories, config.json, the Chronicle database, and JSONL files. It also registers the `elephas:ingest` and `elephas:deep` cron jobs and `elephas:update` (midnight daily, self-update). No manual setup is required.
 
 ## Dependencies
 
@@ -45,8 +46,12 @@ Every other skill in the OCAS suite generates signals -- Elephas is what makes t
 |---|---|---|---|
 | `elephas:ingest` | cron | `*/15 * * * *` (every 15 min) | Ingest journals then immediate consolidation |
 | `elephas:deep` | cron | `0 4 * * *` (daily 4am) | Full identity reconciliation, inference, cleanup |
+| `elephas:update` | cron | `0 0 * * *` (midnight daily) | Self-update from GitHub source |
 
 ## Changelog
+
+### v2.2.1 -- March 27, 2026
+- Added `elephas.update` command and midnight cron for automatic version-checked self-updates
 
 ### v2.2.0 -- March 22, 2026
 - Routing improvements
