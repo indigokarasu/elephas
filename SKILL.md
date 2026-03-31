@@ -39,6 +39,19 @@ Elephas does not own the social graph (Weave), OSINT briefs (Scout), or web rese
 
 Elephas and Mentor are parallel journal consumers. Elephas reads journals to extract entity knowledge. Mentor reads journals to evaluate skill performance. Neither blocks the other.
 
+## Ontology types
+
+Elephas is the authoritative owner of all entity types in Chronicle:
+
+- **Entity/Person** — people and identities
+- **Entity/AI** — AI agents and systems
+- **Place** — locations and venues
+- **Concept/Event** — discrete events and occurrences
+- **Concept/Action** — behaviors and actions
+- **Concept/Idea** — topics, themes, and abstract concepts
+- **Thing/DigitalArtifact** — files, URLs, documents, and digital objects
+
+Elephas is the sole writer to Chronicle. All Signals from other skills arrive via `~/openclaw/data/ocas-elephas/intake/`.
 
 ## Storage layout
 
