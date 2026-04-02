@@ -52,8 +52,10 @@ CREATE NODE TABLE Thing (
 CREATE NODE TABLE Signal (
   id STRING PRIMARY KEY,
   source_skill STRING,
+  source_type STRING,
   source_journal_type STRING,
   payload STRING,
+  user_relevance STRING,
   timestamp STRING,
   status STRING
 );
@@ -64,6 +66,7 @@ CREATE NODE TABLE Candidate (
   proposed_data STRING,
   supporting_signals STRING,
   confidence STRING,
+  user_relevance STRING,
   status STRING,
   created_at STRING,
   resolved_at STRING,
@@ -129,6 +132,8 @@ INTAKE = OCAS_BASE / "db/ocas-elephas/intake"
 STAGING = OCAS_BASE / "db/ocas-elephas/staging"
 JOURNALS = OCAS_BASE / "journals/ocas-elephas"
 CONFIG_PATH = OCAS_BASE / "db/ocas-elephas/config.json"
+WORKSPACE = Path("~/.openclaw/workspace").expanduser()
+SESSIONS_ROOT = Path("~/.openclaw/agents").expanduser()
 
 def _open_db(read_only=False):
     """Open connection. Auto-inits schema and directories on first use."""
@@ -149,8 +154,8 @@ def _ensure_config():
         now = datetime.now(timezone.utc).isoformat()
         config = {
             "skill_id": "ocas-elephas",
-            "skill_version": "2.0.0",
-            "config_version": "1",
+            "skill_version": "3.0.0",
+            "config_version": "2",
             "created_at": now,
             "updated_at": now,
             "consolidation": {
@@ -165,7 +170,17 @@ def _ensure_config():
                 "enabled": True,
                 "min_supporting_nodes": 3
             },
-            "retention": {"days": 0}
+            "retention": {"days": 0},
+            "memory_ingestion": {
+                "enabled": True,
+                "cadence": "deep"
+            },
+            "session_log_ingestion": {
+                "enabled": True,
+                "cadence": "deep",
+                "entry_types": ["message"],
+                "roles": ["human", "assistant"]
+            }
         }
         CONFIG_PATH.write_text(json.dumps(config, indent=2))
 
@@ -199,12 +214,14 @@ def _run_ddl(conn):
         )""",
         """CREATE NODE TABLE Signal (
             id STRING PRIMARY KEY, source_skill STRING,
-            source_journal_type STRING, payload STRING,
+            source_type STRING, source_journal_type STRING,
+            payload STRING, user_relevance STRING,
             timestamp STRING, status STRING
         )""",
         """CREATE NODE TABLE Candidate (
             id STRING PRIMARY KEY, proposed_type STRING, proposed_data STRING,
-            supporting_signals STRING, confidence STRING, status STRING,
+            supporting_signals STRING, confidence STRING,
+            user_relevance STRING, status STRING,
             created_at STRING, resolved_at STRING, resolved_reason STRING
         )""",
         """CREATE NODE TABLE Inference (
@@ -276,11 +293,11 @@ RETURN e.id, e.name, e.identifiers
 ORDER BY e.name
 ```
 
-Pending candidates by confidence:
+Pending candidates by confidence and relevance:
 ```cypher
 MATCH (c:Candidate {status: 'pending'})
-RETURN c.id, c.proposed_type, c.confidence, c.created_at
-ORDER BY c.confidence DESC, c.created_at ASC
+RETURN c.id, c.proposed_type, c.confidence, c.user_relevance, c.created_at
+ORDER BY c.user_relevance DESC, c.confidence DESC, c.created_at ASC
 ```
 
 All relationships for an entity:
@@ -310,6 +327,22 @@ RETURN s.id, s.source_journal_type, s.timestamp
 ORDER BY s.timestamp ASC
 ```
 
+Agent-only candidates (not promoted, for review):
+```cypher
+MATCH (c:Candidate {status: 'pending', user_relevance: 'agent_only'})
+RETURN c.id, c.proposed_type, c.confidence, c.created_at
+ORDER BY c.created_at DESC
+LIMIT 50
+```
+
+Signals by source type:
+```cypher
+MATCH (s:Signal {source_type: $source_type})
+RETURN s.id, s.source_skill, s.user_relevance, s.timestamp
+ORDER BY s.timestamp DESC
+LIMIT 20
+```
+
 ## Field notes
 
 Entity.aliases -- JSON array string: `["alias1", "alias2"]`
@@ -323,10 +356,13 @@ Entity.identity_state -- distinct (default) / possible_match / confirmed_same
 Concept.concept_type -- Event / Action / Idea
   Event subtypes (use as name prefix): TravelEvent, MeetingEvent, PurchaseEvent, AppointmentEvent, CommunicationEvent
 
+Signal.source_type -- journal / intake / memory / session_log
+Signal.source_journal_type -- Observation / Action / Research (null for memory and session_log source types)
+Signal.user_relevance -- user / agent_only / unknown
 Signal.status -- active (awaiting processing) / consumed (ingested)
-Signal.source_journal_type -- Observation / Action / Research
 
 Candidate.confidence -- high / med / low
+Candidate.user_relevance -- user / agent_only / unknown
 Candidate.status -- pending / confirmed / rejected / merged
 
 Relates.relationship_type -- use ontology standard types:

@@ -14,6 +14,8 @@ INTAKE = ROOT / "db/ocas-elephas/intake"
 STAGING = ROOT / "db/ocas-elephas/staging"
 JOURNALS = ROOT / "journals/ocas-elephas"
 CONFIG_PATH = ROOT / "db/ocas-elephas/config.json"
+WORKSPACE = Path("~/.openclaw/workspace").expanduser()
+SESSIONS_ROOT = Path("~/.openclaw/agents").expanduser()
 
 def _open_db(read_only=False):
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)

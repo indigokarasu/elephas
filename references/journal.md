@@ -113,6 +113,16 @@ elephas.ingest.journals:
 - `journals_scanned`, `journals_ingested`, `signals_created`, `candidates_created`
 - Use `journal_type: "observation"` for scan-only runs with no Chronicle writes
 
+elephas.ingest.memory:
+- `memory_files_scanned`, `memory_files_changed`, `signals_created`, `candidates_created`
+
+elephas.ingest.sessions:
+- `session_files_scanned`, `session_entries_processed`, `signals_created`, `candidates_created`, `entries_skipped`
+
+elephas.consolidate.immediate / .deep (extended fields):
+- `relevance_resolved` — count of candidates moved from `unknown` to `user` or `agent_only`
+- `agent_only_withheld` — count of candidates withheld from promotion due to `agent_only` relevance
+
 ## Python helper
 
 ```python
