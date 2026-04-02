@@ -1,23 +1,27 @@
 # 🐘 Elephas
 
-Elephas is the system's long-term memory -- the sole writer to Chronicle, the authoritative knowledge graph where entities, relationships, events, and inferences live permanently once confirmed. It ingests structured signals from every skill's journals, scores candidate facts for confidence, resolves identity across possible duplicates, and promotes what survives into durable Chronicle facts with full provenance.
+Elephas is the system's long-term memory -- the sole writer to Chronicle, the authoritative knowledge graph where entities, relationships, events, and inferences live permanently once confirmed. It ingests structured signals from every skill's journals, extracts entity knowledge from Memory files and session logs, scores candidate facts for confidence and user relevance, resolves identity across possible duplicates, and promotes what survives into durable Chronicle facts with full provenance.
 
 ---
 
 ## Overview
 
-Every other skill in the OCAS suite generates signals -- Elephas is what makes those signals permanent. It ingests structured signal files from all skill journals, scores candidate facts for confidence, resolves identity across potential duplicates using a staged merge protocol, and promotes what survives into Chronicle as durable facts with full provenance. As the sole writer to Chronicle, Elephas is the single source of truth for long-term world knowledge in the system. The Chronicle database (LadybugDB, embedded single-file graph) initializes automatically on first use at `~/openclaw/db/ocas-elephas/chronicle.lbug`.
+Every other skill in the OCAS suite generates signals -- Elephas is what makes those signals permanent. It ingests structured signal files from all skill journals, Memory files, and session log transcripts, scores candidate facts for confidence, evaluates whether entities are relevant to the user's world (vs. incidental to agent task execution), resolves identity across potential duplicates using a staged merge protocol, and promotes what survives into Chronicle as durable facts with full provenance. As the sole writer to Chronicle, Elephas is the single source of truth for long-term world knowledge in the system. The Chronicle database (LadybugDB, embedded single-file graph) initializes automatically on first use at `~/openclaw/db/ocas-elephas/chronicle.lbug`.
+
+Chronicle is the **user's** personal knowledge graph. Only entities relevant to the user's world are promoted. Entities encountered only during agent research or task execution remain as unpromoted candidates.
 
 ## Commands
 
 | Command | Description |
 |---|---|
 | `elephas.ingest.journals` | Ingest structured signals from skill journal files and signal intake directory |
-| `elephas.consolidate.immediate` | Score candidate confidence, promote above threshold, flag possible matches |
-| `elephas.consolidate.deep` | Full identity reconciliation, inference generation, graph cleanup |
+| `elephas.ingest.memory` | Extract entity knowledge from Memory files (MEMORY.md and memory/*.md) |
+| `elephas.ingest.sessions` | Extract entity knowledge from session log transcripts |
+| `elephas.consolidate.immediate` | Score candidate confidence, evaluate user relevance, promote above threshold |
+| `elephas.consolidate.deep` | Full ingestion (including Memory and sessions), identity reconciliation, inference, cleanup |
 | `elephas.identity.resolve` | Attempt to resolve whether two Entity records are the same real-world entity |
 | `elephas.identity.merge` | Merge two confirmed-same Entity records (always reversible) |
-| `elephas.candidates.list` | List pending candidates by confidence tier and age |
+| `elephas.candidates.list` | List pending candidates by confidence tier, user relevance, and age |
 | `elephas.candidates.promote` | Manually promote a candidate to a confirmed Chronicle fact |
 | `elephas.candidates.reject` | Reject a candidate with stated reason |
 | `elephas.query` | Query Chronicle for entities, relationships, events, or inferences |
@@ -34,8 +38,13 @@ Every other skill in the OCAS suite generates signals -- Elephas is what makes t
 
 **OCAS Skills**
 - All skills -- ingest structured signals from skill journals and signal intake directory
+- [Bower](https://github.com/indigokarasu/bower) -- ingest Drive artifact signals with user-relevant entity data
 - [Weave](https://github.com/indigokarasu/weave) -- read-only cross-DB queries for social graph enrichment
 - [Mentor](https://github.com/indigokarasu/mentor) -- reads Chronicle read-only for evaluation context
+
+**OpenClaw Platform**
+- Memory files -- reads `MEMORY.md` and `memory/*.md` during deep consolidation
+- Session logs -- reads session log transcripts during deep consolidation
 
 **External**
 - LadybugDB -- embedded single-file graph database (auto-created at `~/openclaw/db/ocas-elephas/chronicle.lbug`)
@@ -45,10 +54,22 @@ Every other skill in the OCAS suite generates signals -- Elephas is what makes t
 | Job | Mechanism | Schedule | Command |
 |---|---|---|---|
 | `elephas:ingest` | cron | `*/15 * * * *` (every 15 min) | Ingest journals then immediate consolidation |
-| `elephas:deep` | cron | `0 4 * * *` (daily 4am) | Full identity reconciliation, inference, cleanup |
+| `elephas:deep` | cron | `0 4 * * *` (daily 4am) | Ingest Memory + sessions, full identity reconciliation, inference, cleanup |
 | `elephas:update` | cron | `0 0 * * *` (midnight daily) | Self-update from GitHub source |
 
 ## Changelog
+
+### v3.0.0 -- April 2, 2026
+- Added Memory file ingestion (`elephas.ingest.memory`) — extracts entities from MEMORY.md and daily notes
+- Added session log ingestion (`elephas.ingest.sessions`) — extracts entities from conversation transcripts, filtering out machine noise
+- Added user relevance model (`user` / `agent_only` / `unknown`) — only user-relevant entities are promoted to Chronicle facts
+- Added `user_relevance` field to Signal and Candidate schemas
+- Added `source_type` field to Signal schema (journal / intake / memory / session_log)
+- Updated promotion criteria to require `user_relevance: "user"`
+- Updated deep consolidation cron to include Memory and session ingestion
+- Added relevance-related OKRs (relevance_accuracy, agent_only_filter_rate)
+- All skills now expected to include entity observations in journal payloads
+- Bower recognized as primary Drive artifact signal source
 
 ### v2.3.0 -- March 27, 2026
 - Added `elephas.update` command and midnight cron for automatic version-checked self-updates
