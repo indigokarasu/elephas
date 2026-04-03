@@ -154,7 +154,7 @@ def _ensure_config():
         now = datetime.now(timezone.utc).isoformat()
         config = {
             "skill_id": "ocas-elephas",
-            "skill_version": "3.0.0",
+            "skill_version": "3.1.0",
             "config_version": "2",
             "created_at": now,
             "updated_at": now,
@@ -180,6 +180,11 @@ def _ensure_config():
                 "cadence": "deep",
                 "entry_types": ["message"],
                 "roles": ["human", "assistant"]
+            },
+            "signal_normalization": {
+                "enabled": True,
+                "log_conversions": True,
+                "requeue_errors_on_enable": True
             }
         }
         CONFIG_PATH.write_text(json.dumps(config, indent=2))
@@ -360,6 +365,8 @@ Signal.source_type -- journal / intake / memory / session_log
 Signal.source_journal_type -- Observation / Action / Research (null for memory and session_log source types)
 Signal.user_relevance -- user / agent_only / unknown
 Signal.status -- active (awaiting processing) / consumed (ingested)
+Signal._normalized_from -- JSON object string (present only on converted signals): `{"format":"legacy","original_id":"...","converted_at":"...","fields_mapped":[...],"fields_preserved":[...]}`
+Signal._legacy_metadata -- JSON object string (present only on signals with extra/legacy fields): contains preserved fields not mapped to native schema (salience, confidence, source_ref, full provenance object, and any unrecognized fields). Data is never discarded.
 
 Candidate.confidence -- high / med / low
 Candidate.user_relevance -- user / agent_only / unknown
