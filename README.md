@@ -59,6 +59,16 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 
 ## Changelog
 
+### v3.1.0 -- April 3, 2026
+- Added signal format normalization layer to ingestion pipeline
+- Auto-detects legacy format (`signal_id`, `signal_type`, `provenance`) and converts to native format (`id`, `source_skill`, `source_type`)
+- Unknown/extra fields preserved in `_legacy_metadata` — data is never silently discarded
+- Audit trail via `_normalized_from` field on converted signals
+- Best-effort conversion for unrecognized signal schemas (requires `payload` + timestamp)
+- Config toggle: `signal_normalization.enabled` (default: `true`)
+- Backlog recovery: `requeue_errors_on_enable` reprocesses previously rejected signals through normalization
+- Resolves 9,009 rejected signals from intake/errors backlog
+
 ### v3.0.0 -- April 2, 2026
 - Added Memory file ingestion (`elephas.ingest.memory`) — extracts entities from MEMORY.md and daily notes
 - Added session log ingestion (`elephas.ingest.sessions`) — extracts entities from conversation transcripts, filtering out machine noise

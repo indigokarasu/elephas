@@ -104,7 +104,7 @@ Default config.json:
 ```json
 {
   "skill_id": "ocas-elephas",
-  "skill_version": "3.0.0",
+  "skill_version": "3.1.0",
   "config_version": "2",
   "created_at": "",
   "updated_at": "",
@@ -132,6 +132,11 @@ Default config.json:
     "cadence": "deep",
     "entry_types": ["message"],
     "roles": ["human", "assistant"]
+  },
+  "signal_normalization": {
+    "enabled": true,
+    "log_conversions": true,
+    "requeue_errors_on_enable": true
   }
 }
 ```
@@ -153,7 +158,7 @@ Read `references/init_pattern.md` for the `_open_db` implementation pattern. Ful
 
 ## Commands
 
-**elephas.ingest.journals** -- Ingest structured signals from skill journal files and signal intake directory. Read `references/ingestion_pipeline.md`. Auto-inits on first call. Writes Action Journal.
+**elephas.ingest.journals** -- Ingest structured signals from skill journal files and signal intake directory. Intake signals are normalized to native format before processing (legacy and unknown formats are auto-detected and converted). Read `references/ingestion_pipeline.md`. Auto-inits on first call. Writes Action Journal.
 
 **elephas.ingest.memory** -- Extract entity knowledge from Memory files (`MEMORY.md` and `memory/*.md`). Runs during deep consolidation. Tracks content hashes to avoid reprocessing unchanged files. All signals created from Memory files have `user_relevance: "user"`. Writes Action Journal.
 
@@ -212,11 +217,12 @@ After every Elephas command that modifies Chronicle or processes signals:
 
 ```
 Skill Journals / Signal Intake / Memory Files / Session Logs
-  → Signal (immutable, carries user_relevance + source_type)
-    → Candidate (pending, with confidence + user_relevance)
-      → Chronicle Fact (only if user_relevance = "user" + confidence >= high)
-      → Inference (separate, never overwrites facts)
-      → Remains as Candidate (if agent_only — never promoted)
+  → Format Normalization (legacy/unknown → native, audit trail preserved)
+    → Signal (immutable, carries user_relevance + source_type)
+      → Candidate (pending, with confidence + user_relevance)
+        → Chronicle Fact (only if user_relevance = "user" + confidence >= high)
+        → Inference (separate, never overwrites facts)
+        → Remains as Candidate (if agent_only — never promoted)
 ```
 
 

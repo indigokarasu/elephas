@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.1.0] - 2026-04-03
+
+### Added
+- Signal format normalization layer in ingestion pipeline — auto-detects legacy format (`signal_id`, `signal_type`, `provenance`) and converts to native format (`id`, `source_skill`, `source_type`)
+- Legacy-to-native field mapping with known system name resolution (e.g., `google_workspace` → `ocas-bower`)
+- Unknown/extra fields preserved in `_legacy_metadata` — data is never silently discarded
+- Audit trail via `_normalized_from` field on converted signals
+- Best-effort conversion for unrecognized signal schemas (requires `payload` + timestamp)
+- Config toggle: `signal_normalization.enabled` (default: `true`)
+- Backlog recovery: `requeue_errors_on_enable` reprocesses previously rejected signals through normalization
+- `_normalized_from` and `_legacy_metadata` field notes in schemas
+
+### Fixed
+- Resolves 9,009 rejected signals from intake/errors backlog caused by format mismatch between legacy emitters and native schema
+
 ## [3.0.0] - 2026-04-02
 
 ### Added

@@ -8,7 +8,7 @@ Elephas reads from four sources per ingestion pass:
    Walk all skill directories under `~/openclaw/journals/`. Process any `.json` file whose `run_id` does not appear in the ingestion log at `~/openclaw/db/ocas-elephas/ingestion_log.jsonl`.
 
 2. **Signal intake**: `~/openclaw/db/ocas-elephas/intake/{signal_id}.signal.json`
-   Process signal files dropped by other skills. After processing, move to `intake/processed/`.
+   Process signal files dropped by other skills. Normalize to native format before processing (see Signal format normalization). After processing, move to `intake/processed/`.
 
 3. **Memory files** (deep consolidation only): `~/.openclaw/workspace/MEMORY.md` and `~/.openclaw/workspace/memory/*.md`
    Extract entity mentions, relationships, and preferences from the agent's curated memory files. Track file content hashes in `~/openclaw/db/ocas-elephas/memory_ingestion_log.jsonl` to avoid reprocessing unchanged files.
@@ -20,6 +20,97 @@ Sources 1 and 2 run during every ingestion pass (every 15 minutes).
 Sources 3 and 4 run only during deep consolidation passes (daily at 4am).
 
 Skip files that fail JSON parse — log the error, do not halt the pass.
+
+## Signal format normalization
+
+Signal files arriving in `intake/` may use different field naming conventions depending on when the emitting skill was last updated. Elephas normalizes all signals to the native format before pipeline processing.
+
+### Format detection
+
+Check the top-level keys of each parsed signal JSON:
+
+| Detected key | Format | Action |
+|---|---|---|
+| `id` (and no `signal_id`) | Native | No conversion needed |
+| `signal_id` (and no `id`) | Legacy | Convert using legacy-to-native mapping |
+| Neither `id` nor `signal_id` | Unknown | Attempt best-effort conversion (see below) |
+
+### Legacy-to-native field mapping
+
+| Legacy field | Native field | Notes |
+|---|---|---|
+| `signal_id` | `id` | Prefix with `sig_` if value does not already start with `sig_` |
+| `signal_type` | `source_journal_type` | Map: `observation` → `Observation`, `action` → `Action`, `research` → `Research` (case-insensitive) |
+| `provenance.source_system` | `source_skill` | Map known systems: `google_workspace` → `ocas-bower`, `social_graph` → `ocas-weave`, `web_research` → `ocas-sift`, `osint` → `ocas-scout`. Unknown systems → use value as-is with `legacy:` prefix |
+| `payload.concept_type` | `payload.proposed_type` | Direct rename |
+| `salience` | `_legacy_metadata.salience` | Preserved, not mapped to native field |
+| `confidence` | `_legacy_metadata.confidence` | Preserved (pipeline scores confidence independently) |
+| `source_ref` | `_legacy_metadata.source_ref` | Preserved |
+| `provenance` (full object) | `_legacy_metadata.provenance` | Preserved in addition to extracting `source_skill` |
+
+Missing native fields receive defaults:
+- `source_type`: `"intake"`
+- `user_relevance`: `"unknown"`
+- `status`: `"active"`
+- `timestamp`: use `provenance.observed_at` if present, else file modification time as ISO 8601
+
+### Unknown format handling
+
+If the signal is valid JSON but matches neither native nor legacy schema:
+1. Require at minimum a `payload` object and a `timestamp` (or any date-like field)
+2. Generate an `id` as `sig_{uuid7}`
+3. Set `source_skill` to `"unknown"`, `source_type` to `"intake"`
+4. Move all unrecognized top-level fields into `_legacy_metadata`
+5. If no `payload` or date field exists, treat as unparseable — move to `intake/errors/`
+
+### Audit trail
+
+Every converted signal receives a `_normalized_from` field:
+
+```json
+{
+  "_normalized_from": {
+    "format": "legacy",
+    "original_id": "old_signal_id_value",
+    "converted_at": "2026-04-03T10:00:00-07:00",
+    "fields_mapped": ["signal_id", "signal_type", "provenance.source_system", "payload.concept_type"],
+    "fields_preserved": ["salience", "confidence", "source_ref", "provenance"]
+  }
+}
+```
+
+Native-format signals do not receive `_normalized_from`.
+
+### Unknown and extra fields
+
+Any top-level fields not recognized by the native schema are collected into `_legacy_metadata` (a JSON object stored as a string). Data is never silently discarded.
+
+### Configuration
+
+Signal normalization is controlled by the `signal_normalization` block in `config.json`:
+
+```json
+{
+  "signal_normalization": {
+    "enabled": true,
+    "log_conversions": true,
+    "requeue_errors_on_enable": true
+  }
+}
+```
+
+- `enabled` — when `true`, all intake signals pass through the normalization layer before processing. Default: `true`.
+- `log_conversions` — when `true`, log each conversion with original and mapped field names. Default: `true`.
+- `requeue_errors_on_enable` — on the first ingestion pass after enabling normalization, move all `intake/errors/*.error` files back to `intake/` for reprocessing. Default: `true`. Resets to `false` after the first requeue pass.
+
+### Backlog recovery
+
+When `requeue_errors_on_enable` is `true` and errors exist in `intake/errors/`:
+1. Strip the `.error` suffix from each file
+2. Move back to `intake/`
+3. Process through the normalization layer on the current pass
+4. Set `requeue_errors_on_enable` to `false` in config.json after requeue completes
+5. Log the count of requeued files in the ingestion journal
 
 ## Ingestion log
 
@@ -285,7 +376,7 @@ Journal file unparseable — log error with path and reason, skip, continue.
 Signal references entity not in Chronicle — create Candidate, do not create dangling fact.
 Candidate promotion write fails — mark Candidate `pending`, log error, retry next pass.
 Lock error on chronicle.lbug — surface immediately, abort pass, do not corrupt ingestion log.
-Malformed intake signal file — move to `intake/errors/` with `.error` suffix, log, continue.
+Malformed intake signal file — attempt normalization first; if normalization fails (not valid JSON or no payload), move to `intake/errors/` with `.error` suffix, log, continue.
 Memory file read error — log error, skip file, continue with remaining files.
 Session log parse error — log error with file path and byte offset, skip entry, continue.
 Session log lock contention — skip file, retry next deep pass. Do not interfere with active sessions.
