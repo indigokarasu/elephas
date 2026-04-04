@@ -387,3 +387,13 @@ public
 | `references/ontology.md` | When evaluating entity types, relationship types, identity rules, or user relevance |
 | `references/ingestion_pipeline.md` | Before elephas.ingest.journals, elephas.ingest.memory, elephas.ingest.sessions, or any consolidation pass |
 | `references/journal.md` | Before elephas.journal; at end of every run |
+
+## Update command
+
+This skill self-updates every 24 hours via:
+
+```bash
+openclaw elephas.update
+```
+
+This pulls the latest version from GitHub and restarts the skill's background tasks if applicable.

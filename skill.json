@@ -1,6 +1,6 @@
 {
   "name": "ocas-elephas",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Elephas: long-term knowledge graph (Chronicle) maintenance. Ingests structured signals from system journals, Memory files, and session logs. Resolves entity identity, evaluates user relevance, promotes confirmed facts, and generates inferences. Trigger phrases: 'what does Chronicle know about', 'query the knowledge graph', 'ingest journals', 'consolidate', 'resolve entity', 'Chronicle status', 'update elephas'. Use when querying world knowledge, ingesting signals, running consolidation, resolving entity duplicates, or promoting candidates to confirmed facts.",
   "author": "Indigo Karasu",
   "email": "mx.indigo.karasu@gmail.com",
