@@ -1,9 +1,50 @@
 ---
 name: ocas-elephas
-source: https://github.com/indigokarasu/elephas
-install: openclaw skill install https://github.com/indigokarasu/elephas
-description: Use when querying Chronicle (the system's long-term knowledge graph), ingesting signals from skill journals, running consolidation passes, resolving entity duplicates, or promoting candidates to confirmed facts. Trigger phrases: 'what does Chronicle know about', 'query the knowledge graph', 'ingest journals', 'consolidate', 'resolve entity', 'Chronicle status', 'update elephas'. Do not use for social relationship queries (use Weave), web research (use Sift), or person-focused OSINT (use Scout).
-metadata: {"openclaw":{"emoji":"🐘"}}
+description: >
+  Elephas: long-term knowledge graph (Chronicle) maintenance. Ingests
+  structured signals from system journals, Memory files, and session logs.
+  Resolves entity identity, evaluates user relevance, promotes confirmed
+  facts, and generates inferences. Trigger phrases: 'what does Chronicle know
+  about', 'query the knowledge graph', 'ingest journals', 'consolidate',
+  'resolve entity', 'Chronicle status', 'update elephas'. Use when querying
+  world knowledge, ingesting signals, running consolidation, resolving entity
+  duplicates, or promoting candidates to confirmed facts.
+metadata:
+  author: Indigo Karasu
+  email: mx.indigo.karasu@gmail.com
+  version: "3.2.0"
+  hermes:
+    tags: [knowledge-graph, ingestion, entities]
+    category: memory
+    cron:
+      - name: "elephas:update"
+        schedule: "0 0 * * *"
+        command: "elephas.update"
+  openclaw:
+    skill_type: system
+    visibility: public
+    filesystem:
+      read:
+        - "$OCAS_DATA_ROOT/data/ocas-elephas/"
+        - "$OCAS_DATA_ROOT/journals/ocas-elephas/"
+        - "$OCAS_DATA_ROOT/db/ocas-elephas/"
+        - "$OCAS_DATA_ROOT/journals/*/"
+        - "$OCAS_DATA_ROOT/workspace/MEMORY.md"
+        - "$OCAS_DATA_ROOT/workspace/memory/"
+        - "$OCAS_DATA_ROOT/agents/*/sessions/"
+      write:
+        - "$OCAS_DATA_ROOT/data/ocas-elephas/"
+        - "$OCAS_DATA_ROOT/journals/ocas-elephas/"
+        - "$OCAS_DATA_ROOT/db/ocas-elephas/"
+    self_update:
+      source: "https://github.com/indigokarasu/elephas"
+      mechanism: "version-checked tarball from GitHub via gh CLI"
+      command: "elephas.update"
+      requires_binaries: [gh, tar, python3]
+    cron:
+      - name: "elephas:update"
+        schedule: "0 0 * * *"
+        command: "elephas.update"
 ---
 
 # Elephas
@@ -55,7 +96,7 @@ Elephas is the authoritative owner of all entity types in Chronicle:
 - **Concept/Idea** — topics, themes, and abstract concepts
 - **Thing/DigitalArtifact** — files, URLs, documents, and digital objects
 
-Elephas is the sole writer to Chronicle. Signals arrive via skill journals, signal intake files (`~/openclaw/db/ocas-elephas/intake/`), Memory files, and session logs.
+Elephas is the sole writer to Chronicle. Signals arrive via skill journals, signal intake files (`$OCAS_DATA_ROOT/db/ocas-elephas/intake/`), Memory files, and session logs.
 
 ## User relevance model
 
@@ -83,7 +124,7 @@ Read `references/ingestion_pipeline.md` → User relevance scoring for implement
 ## Storage layout
 
 ```
-~/openclaw/db/ocas-elephas/
+$OCAS_DATA_ROOT/db/ocas-elephas/
   chronicle.lbug          — Chronicle graph database (auto-created on first use)
   config.json             — consolidation, inference, and ingestion configuration
   ingestion_log.jsonl     — tracks processed journal files
@@ -94,7 +135,7 @@ Read `references/ingestion_pipeline.md` → User relevance scoring for implement
     {signal_id}.signal.json
     processed/            — moved here after ingestion
 
-~/openclaw/journals/ocas-elephas/
+$OCAS_DATA_ROOT/journals/ocas-elephas/
   YYYY-MM-DD/
     {run_id}.json         — one Action Journal per consolidation or promotion run
 ```
@@ -208,7 +249,7 @@ Also report: last consolidation timestamps, pending identity reviews, inference 
 
 After every Elephas command that modifies Chronicle or processes signals:
 
-1. Process all files in `~/openclaw/db/ocas-elephas/intake/`; move processed files to `intake/processed/`
+1. Process all files in `$OCAS_DATA_ROOT/db/ocas-elephas/intake/`; move processed files to `intake/processed/`
 2. Persist ingestion results, promotion decisions, and merge records
 3. Log material decisions to `decisions.jsonl` (if data directory exists)
 4. Write journal via `elephas.journal`
@@ -322,11 +363,11 @@ elephas.consolidate.immediate / .deep (extended):
 
 On first invocation of any Elephas command, run `elephas.init`:
 
-1. Create `~/openclaw/db/ocas-elephas/` and subdirectories (`staging/`, `intake/`, `intake/processed/`)
+1. Create `$OCAS_DATA_ROOT/db/ocas-elephas/` and subdirectories (`staging/`, `intake/`, `intake/processed/`)
 2. Write default `config.json` with ConfigBase fields if absent
-3. Create `~/openclaw/journals/ocas-elephas/`
+3. Create `$OCAS_DATA_ROOT/journals/ocas-elephas/`
 4. Open database with `_open_db()` which auto-creates `chronicle.lbug` and runs DDL if needed
-5. Register cron jobs `elephas:ingest`, `elephas:deep`, and `elephas:update` if not already present (check `openclaw cron list` first)
+5. Register cron jobs `elephas:ingest`, `elephas:deep`, and `elephas:update` if not already present (check the platform scheduling registry first)
 6. Log initialization as a DecisionRecord
 
 
@@ -342,13 +383,12 @@ Cron options: `sessionTarget: isolated`, `lightContext: true`, `wakeMode: next-h
 
 Registration during `elephas.init`:
 ```
-openclaw cron list
-# If elephas:ingest absent:
-openclaw cron add --name elephas:ingest --schedule "*/15 * * * *" --command "elephas.ingest.journals && elephas.consolidate.immediate" --sessionTarget isolated --lightContext true --wakeMode next-heartbeat --timezone America/Los_Angeles
+# Check platform scheduling registry for existing tasks
+# Task declared in SKILL.md frontmatter metadata.{platform}.cron
 # If elephas:deep absent:
-openclaw cron add --name elephas:deep --schedule "0 4 * * *" --command "elephas.ingest.memory && elephas.ingest.sessions && elephas.consolidate.deep" --sessionTarget isolated --lightContext true --wakeMode next-heartbeat --timezone America/Los_Angeles
+# Task declared in SKILL.md frontmatter metadata.{platform}.cron
 # If elephas:update absent:
-openclaw cron add --name elephas:update --schedule "0 0 * * *" --command "elephas.update" --sessionTarget isolated --lightContext true --timezone America/Los_Angeles
+# Task declared in SKILL.md frontmatter metadata.{platform}.cron
 ```
 
 

@@ -132,8 +132,8 @@ INTAKE = OCAS_BASE / "db/ocas-elephas/intake"
 STAGING = OCAS_BASE / "db/ocas-elephas/staging"
 JOURNALS = OCAS_BASE / "journals/ocas-elephas"
 CONFIG_PATH = OCAS_BASE / "db/ocas-elephas/config.json"
-WORKSPACE = Path("~/.openclaw/workspace").expanduser()
-SESSIONS_ROOT = Path("~/.openclaw/agents").expanduser()
+WORKSPACE = Path("$OCAS_WORKSPACE_ROOT/workspace").expanduser()
+SESSIONS_ROOT = Path("$OCAS_WORKSPACE_ROOT/agents").expanduser()
 
 def _open_db(read_only=False):
     """Open connection. Auto-inits schema and directories on first use."""
@@ -265,26 +265,26 @@ def _run_ddl(conn):
 
 ```bash
 # Open interactive shell
-lbug ~/openclaw/db/ocas-elephas/chronicle.lbug
+lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug
 
 # Check schema
-lbug ~/openclaw/db/ocas-elephas/chronicle.lbug -c ":schema"
+lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug -c ":schema"
 
 # Non-interactive query
-echo "MATCH (e:Entity) RETURN count(e)" | lbug ~/openclaw/db/ocas-elephas/chronicle.lbug
+echo "MATCH (e:Entity) RETURN count(e)" | lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug
 
 # Read-only shell (safe alongside running process)
-lbug ~/openclaw/db/ocas-elephas/chronicle.lbug --readonly
+lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug --readonly
 
 # Show all tables
-lbug ~/openclaw/db/ocas-elephas/chronicle.lbug -c "CALL show_tables() RETURN *"
+lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug -c "CALL show_tables() RETURN *"
 
 # Check pending candidates
-lbug ~/openclaw/db/ocas-elephas/chronicle.lbug -c \
+lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug -c \
   "MATCH (c:Candidate {status: 'pending'}) RETURN c.id, c.proposed_type, c.confidence ORDER BY c.created_at ASC LIMIT 20"
 
 # Show warnings after COPY FROM
-lbug ~/openclaw/db/ocas-elephas/chronicle.lbug -c "CALL show_warnings() RETURN *"
+lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug -c "CALL show_warnings() RETURN *"
 ```
 
 Lock error means another process has the file open READ_WRITE. Only Elephas should hold READ_WRITE. Other skills open as READ_ONLY. If locked unexpectedly, identify the offending process, close it, retry.
