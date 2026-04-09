@@ -1,7 +1,7 @@
 ## [2026-04-08] Filesystem path normalization
 
 ### Fixed
-- Corrected filesystem read paths to use `~/openclaw/` prefix consistently instead of `~/.openclaw/`
+- Corrected filesystem read paths to use `$OCAS_DATA_ROOT/` prefix consistently instead of `$OCAS_WORKSPACE_ROOT/`
 - Aligned workspace and memory paths with OCAS storage layout conventions
 
 ### Validation
@@ -24,6 +24,18 @@
 - ✓ Version: 3.1.0 → 3.1.1
 
 # Changelog
+
+## [3.2.0] - 2026-04-08
+
+### Multi-Platform Compatibility Migration
+
+- Adopted agentskills.io open standard for skill packaging
+- Replaced skill.json with YAML frontmatter in SKILL.md
+- Replaced hardcoded ~/openclaw/ paths with $OCAS_DATA_ROOT/ for platform portability
+- Abstracted cron/heartbeat registration to declarative metadata pattern
+- Added metadata.hermes and metadata.openclaw extension points
+- Compatible with both OpenClaw and Hermes Agent
+
 
 ## [3.1.0] - 2026-04-03
 

@@ -2,11 +2,14 @@
 
 Elephas is the system's long-term memory -- the sole writer to Chronicle, the authoritative knowledge graph where entities, relationships, events, and inferences live permanently once confirmed. It ingests structured signals from every skill's journals, extracts entity knowledge from Memory files and session logs, scores candidate facts for confidence and user relevance, resolves identity across possible duplicates, and promotes what survives into durable Chronicle facts with full provenance.
 
+
+Skill packages follow the [agentskills.io](https://agentskills.io/specification) open standard and are compatible with OpenClaw, Hermes Agent, and any agentskills.io-compliant client.
+
 ---
 
 ## Overview
 
-Every other skill in the OCAS suite generates signals -- Elephas is what makes those signals permanent. It ingests structured signal files from all skill journals, Memory files, and session log transcripts, scores candidate facts for confidence, evaluates whether entities are relevant to the user's world (vs. incidental to agent task execution), resolves identity across potential duplicates using a staged merge protocol, and promotes what survives into Chronicle as durable facts with full provenance. As the sole writer to Chronicle, Elephas is the single source of truth for long-term world knowledge in the system. The Chronicle database (LadybugDB, embedded single-file graph) initializes automatically on first use at `~/openclaw/db/ocas-elephas/chronicle.lbug`.
+Every other skill in the OCAS suite generates signals -- Elephas is what makes those signals permanent. It ingests structured signal files from all skill journals, Memory files, and session log transcripts, scores candidate facts for confidence, evaluates whether entities are relevant to the user's world (vs. incidental to agent task execution), resolves identity across potential duplicates using a staged merge protocol, and promotes what survives into Chronicle as durable facts with full provenance. As the sole writer to Chronicle, Elephas is the single source of truth for long-term world knowledge in the system. The Chronicle database (LadybugDB, embedded single-file graph) initializes automatically on first use at `$OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug`.
 
 Chronicle is the **user's** personal knowledge graph. Only entities relevant to the user's world are promoted. Entities encountered only during agent research or task execution remain as unpromoted candidates.
 
@@ -47,7 +50,7 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 - Session logs -- reads session log transcripts during deep consolidation
 
 **External**
-- LadybugDB -- embedded single-file graph database (auto-created at `~/openclaw/db/ocas-elephas/chronicle.lbug`)
+- LadybugDB -- embedded single-file graph database (auto-created at `$OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug`)
 
 ## Scheduled Tasks
 

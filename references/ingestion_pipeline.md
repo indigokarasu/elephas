@@ -4,17 +4,17 @@
 
 Elephas reads from four sources per ingestion pass:
 
-1. **Skill journals**: `~/openclaw/journals/{skill-name}/YYYY-MM-DD/{run_id}.json`
-   Walk all skill directories under `~/openclaw/journals/`. Process any `.json` file whose `run_id` does not appear in the ingestion log at `~/openclaw/db/ocas-elephas/ingestion_log.jsonl`.
+1. **Skill journals**: `$OCAS_DATA_ROOT/journals/{skill-name}/YYYY-MM-DD/{run_id}.json`
+   Walk all skill directories under `$OCAS_DATA_ROOT/journals/`. Process any `.json` file whose `run_id` does not appear in the ingestion log at `$OCAS_DATA_ROOT/db/ocas-elephas/ingestion_log.jsonl`.
 
-2. **Signal intake**: `~/openclaw/db/ocas-elephas/intake/{signal_id}.signal.json`
+2. **Signal intake**: `$OCAS_DATA_ROOT/db/ocas-elephas/intake/{signal_id}.signal.json`
    Process signal files dropped by other skills. Normalize to native format before processing (see Signal format normalization). After processing, move to `intake/processed/`.
 
-3. **Memory files** (deep consolidation only): `~/.openclaw/workspace/MEMORY.md` and `~/.openclaw/workspace/memory/*.md`
-   Extract entity mentions, relationships, and preferences from the agent's curated memory files. Track file content hashes in `~/openclaw/db/ocas-elephas/memory_ingestion_log.jsonl` to avoid reprocessing unchanged files.
+3. **Memory files** (deep consolidation only): `$OCAS_WORKSPACE_ROOT/MEMORY.md` and `$OCAS_WORKSPACE_ROOT/memory/*.md`
+   Extract entity mentions, relationships, and preferences from the agent's curated memory files. Track file content hashes in `$OCAS_DATA_ROOT/db/ocas-elephas/memory_ingestion_log.jsonl` to avoid reprocessing unchanged files.
 
-4. **Session logs** (deep consolidation only): `~/.openclaw/agents/*/sessions/*.jsonl`
-   Extract entity knowledge from conversation transcripts. Only process `message` entries from `human` and `assistant` roles — skip `toolResult`, `compaction`, `custom`, and all other machine-generated entry types. Track processed session IDs and byte offsets in `~/openclaw/db/ocas-elephas/session_ingestion_log.jsonl`.
+4. **Session logs** (deep consolidation only): `$OCAS_WORKSPACE_ROOT/agents/*/sessions/*.jsonl`
+   Extract entity knowledge from conversation transcripts. Only process `message` entries from `human` and `assistant` roles — skip `toolResult`, `compaction`, `custom`, and all other machine-generated entry types. Track processed session IDs and byte offsets in `$OCAS_DATA_ROOT/db/ocas-elephas/session_ingestion_log.jsonl`.
 
 Sources 1 and 2 run during every ingestion pass (every 15 minutes).
 Sources 3 and 4 run only during deep consolidation passes (daily at 4am).
@@ -114,14 +114,14 @@ When `requeue_errors_on_enable` is `true` and errors exist in `intake/errors/`:
 
 ## Ingestion log
 
-Append-only JSONL at `~/openclaw/db/ocas-elephas/ingestion_log.jsonl`.
+Append-only JSONL at `$OCAS_DATA_ROOT/db/ocas-elephas/ingestion_log.jsonl`.
 
 ```json
 {
   "run_id": "r_xxxxxxx",
   "source_skill": "ocas-weave",
   "source_type": "journal",
-  "journal_path": "~/openclaw/journals/ocas-weave/2026-03-17/r_xxxxxxx.json",
+  "journal_path": "$OCAS_DATA_ROOT/journals/ocas-weave/2026-03-17/r_xxxxxxx.json",
   "journal_type": "observation",
   "signals_created": 3,
   "candidates_created": 2,
@@ -131,11 +131,11 @@ Append-only JSONL at `~/openclaw/db/ocas-elephas/ingestion_log.jsonl`.
 
 ### Memory ingestion log
 
-Append-only JSONL at `~/openclaw/db/ocas-elephas/memory_ingestion_log.jsonl`.
+Append-only JSONL at `$OCAS_DATA_ROOT/db/ocas-elephas/memory_ingestion_log.jsonl`.
 
 ```json
 {
-  "file_path": "~/.openclaw/workspace/MEMORY.md",
+  "file_path": "$OCAS_WORKSPACE_ROOT/MEMORY.md",
   "content_hash": "sha256:abc123...",
   "signals_created": 5,
   "ingested_at": "2026-03-18T04:02:00-07:00"
@@ -146,11 +146,11 @@ Only re-ingest a memory file when its content hash has changed since the last in
 
 ### Session ingestion log
 
-Append-only JSONL at `~/openclaw/db/ocas-elephas/session_ingestion_log.jsonl`.
+Append-only JSONL at `$OCAS_DATA_ROOT/db/ocas-elephas/session_ingestion_log.jsonl`.
 
 ```json
 {
-  "session_file": "~/.openclaw/agents/main/sessions/sess_abc123.jsonl",
+  "session_file": "$OCAS_WORKSPACE_ROOT/agents/main/sessions/sess_abc123.jsonl",
   "last_byte_offset": 48230,
   "signals_created": 2,
   "ingested_at": "2026-03-18T04:03:00-07:00"
