@@ -12,7 +12,7 @@ description: >
 metadata:
   author: Indigo Karasu
   email: mx.indigo.karasu@gmail.com
-  version: "3.2.0"
+  version: "3.2.1"
   hermes:
     tags: [knowledge-graph, ingestion, entities]
     category: memory
@@ -25,17 +25,17 @@ metadata:
     visibility: public
     filesystem:
       read:
-        - "$OCAS_DATA_ROOT/data/ocas-elephas/"
-        - "$OCAS_DATA_ROOT/journals/ocas-elephas/"
-        - "$OCAS_DATA_ROOT/db/ocas-elephas/"
-        - "$OCAS_DATA_ROOT/journals/*/"
-        - "$OCAS_DATA_ROOT/workspace/MEMORY.md"
-        - "$OCAS_DATA_ROOT/workspace/memory/"
-        - "$OCAS_DATA_ROOT/agents/*/sessions/"
+        - "{agent_root}/commons/data/ocas-elephas/"
+        - "{agent_root}/commons/journals/ocas-elephas/"
+        - "{agent_root}/commons/db/ocas-elephas/"
+        - "{agent_root}/commons/journals/*/"
+        - "{agent_root}/commons/workspace/MEMORY.md"
+        - "{agent_root}/commons/workspace/memory/"
+        - "{agent_root}/commons/agents/*/sessions/"
       write:
-        - "$OCAS_DATA_ROOT/data/ocas-elephas/"
-        - "$OCAS_DATA_ROOT/journals/ocas-elephas/"
-        - "$OCAS_DATA_ROOT/db/ocas-elephas/"
+        - "{agent_root}/commons/data/ocas-elephas/"
+        - "{agent_root}/commons/journals/ocas-elephas/"
+        - "{agent_root}/commons/db/ocas-elephas/"
     self_update:
       source: "https://github.com/indigokarasu/elephas"
       mechanism: "version-checked tarball from GitHub via gh CLI"
@@ -96,7 +96,7 @@ Elephas is the authoritative owner of all entity types in Chronicle:
 - **Concept/Idea** — topics, themes, and abstract concepts
 - **Thing/DigitalArtifact** — files, URLs, documents, and digital objects
 
-Elephas is the sole writer to Chronicle. Signals arrive via skill journals, signal intake files (`$OCAS_DATA_ROOT/db/ocas-elephas/intake/`), Memory files, and session logs.
+Elephas is the sole writer to Chronicle. Signals arrive via skill journals, journal signal payloads (journal payload fields (see interfaces specification)), Memory files, and session logs.
 
 ## User relevance model
 
@@ -124,18 +124,17 @@ Read `references/ingestion_pipeline.md` → User relevance scoring for implement
 ## Storage layout
 
 ```
-$OCAS_DATA_ROOT/db/ocas-elephas/
+{agent_root}/commons/db/ocas-elephas/
   chronicle.lbug          — Chronicle graph database (auto-created on first use)
   config.json             — consolidation, inference, and ingestion configuration
   ingestion_log.jsonl     — tracks processed journal files
   memory_ingestion_log.jsonl  — tracks processed Memory file hashes
   session_ingestion_log.jsonl — tracks processed session log offsets
   staging/                — temporary files during ingestion passes
-  intake/                 — incoming signals from other skills
     {signal_id}.signal.json
     processed/            — moved here after ingestion
 
-$OCAS_DATA_ROOT/journals/ocas-elephas/
+{agent_root}/commons/journals/ocas-elephas/
   YYYY-MM-DD/
     {run_id}.json         — one Action Journal per consolidation or promotion run
 ```
@@ -199,7 +198,7 @@ Read `references/init_pattern.md` for the `_open_db` implementation pattern. Ful
 
 ## Commands
 
-**elephas.ingest.journals** -- Ingest structured signals from skill journal files and signal intake directory. Intake signals are normalized to native format before processing (legacy and unknown formats are auto-detected and converted). Read `references/ingestion_pipeline.md`. Auto-inits on first call. Writes Action Journal.
+**elephas.ingest.journals** -- Ingest structured signals from skill journal files and signal journal payload. Intake signals are normalized to native format before processing (legacy and unknown formats are auto-detected and converted). Read `references/ingestion_pipeline.md`. Auto-inits on first call. Writes Action Journal.
 
 **elephas.ingest.memory** -- Extract entity knowledge from Memory files (`MEMORY.md` and `memory/*.md`). Runs during deep consolidation. Tracks content hashes to avoid reprocessing unchanged files. All signals created from Memory files have `user_relevance: "user"`. Writes Action Journal.
 
@@ -238,7 +237,7 @@ MATCH ()-[r]->() RETURN count(r) AS relationships;
 CALL show_warnings() RETURN *;
 ```
 
-Also report: last consolidation timestamps, pending identity reviews, inference count, intake queue depth, memory ingestion last run, session ingestion last run.
+Also report: last consolidation timestamps, pending identity reviews, inference count, journal signal queue depth, memory ingestion last run, session ingestion last run.
 
 **elephas.journal** -- Write Action Journal for the current run. Read `references/journal.md`. Called at end of every consolidation, promotion, merge, or rejection run.
 
@@ -249,7 +248,7 @@ Also report: last consolidation timestamps, pending identity reviews, inference 
 
 After every Elephas command that modifies Chronicle or processes signals:
 
-1. Process all files in `$OCAS_DATA_ROOT/db/ocas-elephas/intake/`; move processed files to `intake/processed/`
+1. Process all files in journal payload fields (see interfaces specification); move processed files to the consumer's ingestion log
 2. Persist ingestion results, promotion decisions, and merge records
 3. Log material decisions to `decisions.jsonl` (if data directory exists)
 4. Write journal via `elephas.journal`
@@ -269,7 +268,7 @@ Skill Journals / Signal Intake / Memory Files / Session Logs
 
 ## Consolidation passes
 
-Immediate (every 15 min) -- ingest journals and intake signals, create candidates, score confidence, evaluate user relevance, promote high-confidence user-relevant candidates. Scheduled -- promotes remaining, deduplicates.
+Immediate (every 15 min) -- ingest journals and journal signal payloads, create candidates, score confidence, evaluate user relevance, promote high-confidence user-relevant candidates. Scheduled -- promotes remaining, deduplicates.
 
 Deep (every 24 hr) -- ingest Memory files and session logs, full identity reconciliation, user relevance resolution for `unknown` candidates, inference generation, graph cleanup.
 
@@ -331,13 +330,13 @@ skill_okrs:
 
 ## Optional skill cooperation
 
-- All skills — ingest structured signals from skill journals and signal intake. All skills should include `entities_observed`, `relationships_observed`, and `preferences_observed` in journal payloads when entities are encountered during runs.
+- All skills — ingest structured signals from skill journals and journal signal payloads. All skills should include `entities_observed`, `relationships_observed`, and `preferences_observed` in journal payloads when entities are encountered during runs.
 - Bower — ingest Drive artifact signals with user-relevant entity data
 - Weave — read-only cross-DB queries for social graph enrichment; optional signal emission for Person entities
 - Mentor — Mentor reads Chronicle (read-only) for evaluation context
 - Corvus — reads Chronicle (read-only) for pattern analysis; reads Memory files and session logs
-- Scout — emits research signals to intake with `user_relevance` field
-- Sift — emits research signals to intake with `user_relevance` field
+- Scout — emits research signals via journal payloads with `user_relevance` field
+- Sift — emits research signals via journal payloads with `user_relevance` field
 - OpenClaw Memory — reads `MEMORY.md` and `memory/*.md` during deep consolidation
 - OpenClaw Sessions — reads session log transcripts during deep consolidation
 
@@ -363,9 +362,9 @@ elephas.consolidate.immediate / .deep (extended):
 
 On first invocation of any Elephas command, run `elephas.init`:
 
-1. Create `$OCAS_DATA_ROOT/db/ocas-elephas/` and subdirectories (`staging/`, `intake/`, `intake/processed/`)
+1. Create `{agent_root}/commons/db/ocas-elephas/` and subdirectories (`staging/`, journal entries, the consumer's ingestion log)
 2. Write default `config.json` with ConfigBase fields if absent
-3. Create `$OCAS_DATA_ROOT/journals/ocas-elephas/`
+3. Create `{agent_root}/commons/journals/ocas-elephas/`
 4. Open database with `_open_db()` which auto-creates `chronicle.lbug` and runs DDL if needed
 5. Register cron jobs `elephas:ingest`, `elephas:deep`, and `elephas:update` if not already present (check the platform scheduling registry first)
 6. Log initialization as a DecisionRecord

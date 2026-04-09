@@ -4,17 +4,17 @@
 
 Elephas reads from four sources per ingestion pass:
 
-1. **Skill journals**: `$OCAS_DATA_ROOT/journals/{skill-name}/YYYY-MM-DD/{run_id}.json`
-   Walk all skill directories under `$OCAS_DATA_ROOT/journals/`. Process any `.json` file whose `run_id` does not appear in the ingestion log at `$OCAS_DATA_ROOT/db/ocas-elephas/ingestion_log.jsonl`.
+1. **Skill journals**: `{agent_root}/commons/journals/{skill-name}/YYYY-MM-DD/{run_id}.json`
+   Walk all skill directories under `{agent_root}/commons/journals/`. Process any `.json` file whose `run_id` does not appear in the ingestion log at `{agent_root}/commons/db/ocas-elephas/ingestion_log.jsonl`.
 
-2. **Signal intake**: `$OCAS_DATA_ROOT/db/ocas-elephas/intake/{signal_id}.signal.json`
-   Process signal files dropped by other skills. Normalize to native format before processing (see Signal format normalization). After processing, move to `intake/processed/`.
+2. **Journal signal payloads**: the `signal` payload field in the journal entry
+   Process signal files dropped by other skills. Normalize to native format before processing (see Signal format normalization). After processing, move to the consumer's ingestion log.
 
-3. **Memory files** (deep consolidation only): `$OCAS_WORKSPACE_ROOT/MEMORY.md` and `$OCAS_WORKSPACE_ROOT/memory/*.md`
-   Extract entity mentions, relationships, and preferences from the agent's curated memory files. Track file content hashes in `$OCAS_DATA_ROOT/db/ocas-elephas/memory_ingestion_log.jsonl` to avoid reprocessing unchanged files.
+3. **Memory files** (deep consolidation only): `{agent_root}/MEMORY.md` and `{agent_root}/memory/*.md`
+   Extract entity mentions, relationships, and preferences from the agent's curated memory files. Track file content hashes in `{agent_root}/commons/db/ocas-elephas/memory_ingestion_log.jsonl` to avoid reprocessing unchanged files.
 
-4. **Session logs** (deep consolidation only): `$OCAS_WORKSPACE_ROOT/agents/*/sessions/*.jsonl`
-   Extract entity knowledge from conversation transcripts. Only process `message` entries from `human` and `assistant` roles — skip `toolResult`, `compaction`, `custom`, and all other machine-generated entry types. Track processed session IDs and byte offsets in `$OCAS_DATA_ROOT/db/ocas-elephas/session_ingestion_log.jsonl`.
+4. **Session logs** (deep consolidation only): `{agent_root}/agents/*/sessions/*.jsonl`
+   Extract entity knowledge from conversation transcripts. Only process `message` entries from `human` and `assistant` roles — skip `toolResult`, `compaction`, `custom`, and all other machine-generated entry types. Track processed session IDs and byte offsets in `{agent_root}/commons/db/ocas-elephas/session_ingestion_log.jsonl`.
 
 Sources 1 and 2 run during every ingestion pass (every 15 minutes).
 Sources 3 and 4 run only during deep consolidation passes (daily at 4am).
@@ -23,7 +23,7 @@ Skip files that fail JSON parse — log the error, do not halt the pass.
 
 ## Signal format normalization
 
-Signal files arriving in `intake/` may use different field naming conventions depending on when the emitting skill was last updated. Elephas normalizes all signals to the native format before pipeline processing.
+Signal payloads in journal entries may use different field naming conventions depending on when the emitting skill was last updated. Elephas normalizes all signals to the native format before pipeline processing.
 
 ### Format detection
 
@@ -49,7 +49,7 @@ Check the top-level keys of each parsed signal JSON:
 | `provenance` (full object) | `_legacy_metadata.provenance` | Preserved in addition to extracting `source_skill` |
 
 Missing native fields receive defaults:
-- `source_type`: `"intake"`
+- `source_type`: `"journal"`
 - `user_relevance`: `"unknown"`
 - `status`: `"active"`
 - `timestamp`: use `provenance.observed_at` if present, else file modification time as ISO 8601
@@ -59,9 +59,9 @@ Missing native fields receive defaults:
 If the signal is valid JSON but matches neither native nor legacy schema:
 1. Require at minimum a `payload` object and a `timestamp` (or any date-like field)
 2. Generate an `id` as `sig_{uuid7}`
-3. Set `source_skill` to `"unknown"`, `source_type` to `"intake"`
+3. Set `source_skill` to `"unknown"`, `source_type` to `"journal"`
 4. Move all unrecognized top-level fields into `_legacy_metadata`
-5. If no `payload` or date field exists, treat as unparseable — move to `intake/errors/`
+5. If no `payload` or date field exists, treat as unparseable — move to the error log
 
 ### Audit trail
 
@@ -99,29 +99,29 @@ Signal normalization is controlled by the `signal_normalization` block in `confi
 }
 ```
 
-- `enabled` — when `true`, all intake signals pass through the normalization layer before processing. Default: `true`.
+- `enabled` — when `true`, all journal signal payloads pass through the normalization layer before processing. Default: `true`.
 - `log_conversions` — when `true`, log each conversion with original and mapped field names. Default: `true`.
-- `requeue_errors_on_enable` — on the first ingestion pass after enabling normalization, move all `intake/errors/*.error` files back to `intake/` for reprocessing. Default: `true`. Resets to `false` after the first requeue pass.
+- `requeue_errors_on_enable` — on the first ingestion pass after enabling normalization, move all `error log*.error` files back to journal entries for reprocessing. Default: `true`. Resets to `false` after the first requeue pass.
 
 ### Backlog recovery
 
-When `requeue_errors_on_enable` is `true` and errors exist in `intake/errors/`:
+When `requeue_errors_on_enable` is `true` and errors exist in the error log:
 1. Strip the `.error` suffix from each file
-2. Move back to `intake/`
+2. Move back to journal entries
 3. Process through the normalization layer on the current pass
 4. Set `requeue_errors_on_enable` to `false` in config.json after requeue completes
 5. Log the count of requeued files in the ingestion journal
 
 ## Ingestion log
 
-Append-only JSONL at `$OCAS_DATA_ROOT/db/ocas-elephas/ingestion_log.jsonl`.
+Append-only JSONL at `{agent_root}/commons/db/ocas-elephas/ingestion_log.jsonl`.
 
 ```json
 {
   "run_id": "r_xxxxxxx",
   "source_skill": "ocas-weave",
   "source_type": "journal",
-  "journal_path": "$OCAS_DATA_ROOT/journals/ocas-weave/2026-03-17/r_xxxxxxx.json",
+  "journal_path": "{agent_root}/commons/journals/ocas-weave/2026-03-17/r_xxxxxxx.json",
   "journal_type": "observation",
   "signals_created": 3,
   "candidates_created": 2,
@@ -131,11 +131,11 @@ Append-only JSONL at `$OCAS_DATA_ROOT/db/ocas-elephas/ingestion_log.jsonl`.
 
 ### Memory ingestion log
 
-Append-only JSONL at `$OCAS_DATA_ROOT/db/ocas-elephas/memory_ingestion_log.jsonl`.
+Append-only JSONL at `{agent_root}/commons/db/ocas-elephas/memory_ingestion_log.jsonl`.
 
 ```json
 {
-  "file_path": "$OCAS_WORKSPACE_ROOT/MEMORY.md",
+  "file_path": "{agent_root}/MEMORY.md",
   "content_hash": "sha256:abc123...",
   "signals_created": 5,
   "ingested_at": "2026-03-18T04:02:00-07:00"
@@ -146,11 +146,11 @@ Only re-ingest a memory file when its content hash has changed since the last in
 
 ### Session ingestion log
 
-Append-only JSONL at `$OCAS_DATA_ROOT/db/ocas-elephas/session_ingestion_log.jsonl`.
+Append-only JSONL at `{agent_root}/commons/db/ocas-elephas/session_ingestion_log.jsonl`.
 
 ```json
 {
-  "session_file": "$OCAS_WORKSPACE_ROOT/agents/main/sessions/sess_abc123.jsonl",
+  "session_file": "{agent_root}/agents/main/sessions/sess_abc123.jsonl",
   "last_byte_offset": 48230,
   "signals_created": 2,
   "ingested_at": "2026-03-18T04:03:00-07:00"
@@ -219,7 +219,7 @@ Create Signal with `source_type: "session_log"`, `source_skill: "openclaw-sessio
 }
 ```
 
-`source_type` values: `journal` | `intake` | `memory` | `session_log`
+`source_type` values: `journal` | `journal` | `memory` | `session_log`
 
 Write Signal to Chronicle as a Signal node. Signals are immutable after creation.
 
@@ -236,8 +236,8 @@ Every Signal carries a `user_relevance` field. This determines whether the entit
 | Session log (assistant role) | `unknown` | Agent may be discussing user topics or its own research |
 | Bower (Drive signals) | `user` | User's own files and documents |
 | Skill journal (entities_observed) | `unknown` | Skill encountered it; relevance unclear |
-| Signal intake (Scout/Sift) | `agent_only` | Research output; not demonstrated user connection |
-| Signal intake with user_relevance set | (use provided value) | Emitting skill has already assessed relevance |
+| Journal signal payloads (Scout/Sift) | `agent_only` | Research output; not demonstrated user connection |
+| Journal signal payloads with user_relevance set | (use provided value) | Emitting skill has already assessed relevance |
 
 ### Relevance on Candidates
 
@@ -376,7 +376,7 @@ Journal file unparseable — log error with path and reason, skip, continue.
 Signal references entity not in Chronicle — create Candidate, do not create dangling fact.
 Candidate promotion write fails — mark Candidate `pending`, log error, retry next pass.
 Lock error on chronicle.lbug — surface immediately, abort pass, do not corrupt ingestion log.
-Malformed intake signal file — attempt normalization first; if normalization fails (not valid JSON or no payload), move to `intake/errors/` with `.error` suffix, log, continue.
+Malformed journal signal payload — attempt normalization first; if normalization fails (not valid JSON or no payload), move to the error log with `.error` suffix, log, continue.
 Memory file read error — log error, skip file, continue with remaining files.
 Session log parse error — log error with file path and byte offset, skip entry, continue.
 Session log lock contention — skip file, retry next deep pass. Do not interfere with active sessions.

@@ -9,7 +9,7 @@ Skill packages follow the [agentskills.io](https://agentskills.io/specification)
 
 ## Overview
 
-Every other skill in the OCAS suite generates signals -- Elephas is what makes those signals permanent. It ingests structured signal files from all skill journals, Memory files, and session log transcripts, scores candidate facts for confidence, evaluates whether entities are relevant to the user's world (vs. incidental to agent task execution), resolves identity across potential duplicates using a staged merge protocol, and promotes what survives into Chronicle as durable facts with full provenance. As the sole writer to Chronicle, Elephas is the single source of truth for long-term world knowledge in the system. The Chronicle database (LadybugDB, embedded single-file graph) initializes automatically on first use at `$OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug`.
+Every other skill in the OCAS suite generates signals -- Elephas is what makes those signals permanent. It ingests structured signal files from all skill journals, Memory files, and session log transcripts, scores candidate facts for confidence, evaluates whether entities are relevant to the user's world (vs. incidental to agent task execution), resolves identity across potential duplicates using a staged merge protocol, and promotes what survives into Chronicle as durable facts with full provenance. As the sole writer to Chronicle, Elephas is the single source of truth for long-term world knowledge in the system. The Chronicle database (LadybugDB, embedded single-file graph) initializes automatically on first use at `{agent_root}/commons/db/ocas-elephas/chronicle.lbug`.
 
 Chronicle is the **user's** personal knowledge graph. Only entities relevant to the user's world are promoted. Entities encountered only during agent research or task execution remain as unpromoted candidates.
 
@@ -17,7 +17,7 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 
 | Command | Description |
 |---|---|
-| `elephas.ingest.journals` | Ingest structured signals from skill journal files and signal intake directory |
+| `elephas.ingest.journals` | Ingest structured signals from skill journal files and signal journal payload |
 | `elephas.ingest.memory` | Extract entity knowledge from Memory files (MEMORY.md and memory/*.md) |
 | `elephas.ingest.sessions` | Extract entity knowledge from session log transcripts |
 | `elephas.consolidate.immediate` | Score candidate confidence, evaluate user relevance, promote above threshold |
@@ -40,7 +40,7 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 ## Dependencies
 
 **OCAS Skills**
-- All skills -- ingest structured signals from skill journals and signal intake directory
+- All skills -- ingest structured signals from skill journals and signal journal payload
 - [Bower](https://github.com/indigokarasu/bower) -- ingest Drive artifact signals with user-relevant entity data
 - [Weave](https://github.com/indigokarasu/weave) -- read-only cross-DB queries for social graph enrichment
 - [Mentor](https://github.com/indigokarasu/mentor) -- reads Chronicle read-only for evaluation context
@@ -50,7 +50,7 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 - Session logs -- reads session log transcripts during deep consolidation
 
 **External**
-- LadybugDB -- embedded single-file graph database (auto-created at `$OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug`)
+- LadybugDB -- embedded single-file graph database (auto-created at `{agent_root}/commons/db/ocas-elephas/chronicle.lbug`)
 
 ## Scheduled Tasks
 
@@ -70,14 +70,14 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 - Best-effort conversion for unrecognized signal schemas (requires `payload` + timestamp)
 - Config toggle: `signal_normalization.enabled` (default: `true`)
 - Backlog recovery: `requeue_errors_on_enable` reprocesses previously rejected signals through normalization
-- Resolves 9,009 rejected signals from intake/errors backlog
+- Resolves 9,009 rejected signals from errors backlog
 
 ### v3.0.0 -- April 2, 2026
 - Added Memory file ingestion (`elephas.ingest.memory`) — extracts entities from MEMORY.md and daily notes
 - Added session log ingestion (`elephas.ingest.sessions`) — extracts entities from conversation transcripts, filtering out machine noise
 - Added user relevance model (`user` / `agent_only` / `unknown`) — only user-relevant entities are promoted to Chronicle facts
 - Added `user_relevance` field to Signal and Candidate schemas
-- Added `source_type` field to Signal schema (journal / intake / memory / session_log)
+- Added `source_type` field to Signal schema (journal / journal / memory / session_log)
 - Updated promotion criteria to require `user_relevance: "user"`
 - Updated deep consolidation cron to include Memory and session ingestion
 - Added relevance-related OKRs (relevance_accuracy, agent_only_filter_rate)

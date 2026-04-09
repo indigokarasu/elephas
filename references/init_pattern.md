@@ -10,12 +10,11 @@ from datetime import datetime, timezone
 
 ROOT = Path("~/openclaw").expanduser()
 DB_PATH = ROOT / "db/ocas-elephas/chronicle.lbug"
-INTAKE = ROOT / "db/ocas-elephas/intake"
 STAGING = ROOT / "db/ocas-elephas/staging"
 JOURNALS = ROOT / "journals/ocas-elephas"
 CONFIG_PATH = ROOT / "db/ocas-elephas/config.json"
-WORKSPACE = Path("$OCAS_WORKSPACE_ROOT/workspace").expanduser()
-SESSIONS_ROOT = Path("$OCAS_WORKSPACE_ROOT/agents").expanduser()
+WORKSPACE = Path("{agent_root}/workspace").expanduser()
+SESSIONS_ROOT = Path("{agent_root}/agents").expanduser()
 
 def _open_db(read_only=False):
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)

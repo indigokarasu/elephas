@@ -1,7 +1,7 @@
 ## [2026-04-08] Filesystem path normalization
 
 ### Fixed
-- Corrected filesystem read paths to use `$OCAS_DATA_ROOT/` prefix consistently instead of `$OCAS_WORKSPACE_ROOT/`
+- Corrected filesystem read paths to use `{agent_root}/commons/` prefix consistently instead of `{agent_root}/`
 - Aligned workspace and memory paths with OCAS storage layout conventions
 
 ### Validation
@@ -25,13 +25,24 @@
 
 # Changelog
 
+## [3.2.1] - 2026-04-08
+
+### Storage Architecture Update
+
+- Replaced $OCAS_DATA_ROOT variable with platform-native {agent_root}/commons/ convention
+- Replaced intake directory pattern with journal payload convention
+- Added errors/ as universal storage root alongside journals/
+- Inter-skill communication now flows through typed journal payload fields
+- No invented environment variables — skills ask the agent for its root directory
+
+
 ## [3.2.0] - 2026-04-08
 
 ### Multi-Platform Compatibility Migration
 
 - Adopted agentskills.io open standard for skill packaging
 - Replaced skill.json with YAML frontmatter in SKILL.md
-- Replaced hardcoded ~/openclaw/ paths with $OCAS_DATA_ROOT/ for platform portability
+- Replaced hardcoded ~/openclaw/ paths with {agent_root}/commons/ for platform portability
 - Abstracted cron/heartbeat registration to declarative metadata pattern
 - Added metadata.hermes and metadata.openclaw extension points
 - Compatible with both OpenClaw and Hermes Agent
