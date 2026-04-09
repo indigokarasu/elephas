@@ -128,12 +128,11 @@ from datetime import datetime, timezone
 
 OCAS_BASE = Path("~/openclaw").expanduser()
 DB_PATH = OCAS_BASE / "db/ocas-elephas/chronicle.lbug"
-INTAKE = OCAS_BASE / "db/ocas-elephas/intake"
 STAGING = OCAS_BASE / "db/ocas-elephas/staging"
 JOURNALS = OCAS_BASE / "journals/ocas-elephas"
 CONFIG_PATH = OCAS_BASE / "db/ocas-elephas/config.json"
-WORKSPACE = Path("$OCAS_WORKSPACE_ROOT/workspace").expanduser()
-SESSIONS_ROOT = Path("$OCAS_WORKSPACE_ROOT/agents").expanduser()
+WORKSPACE = Path("{agent_root}/workspace").expanduser()
+SESSIONS_ROOT = Path("{agent_root}/agents").expanduser()
 
 def _open_db(read_only=False):
     """Open connection. Auto-inits schema and directories on first use."""
@@ -265,26 +264,26 @@ def _run_ddl(conn):
 
 ```bash
 # Open interactive shell
-lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug
+lbug {agent_root}/commons/db/ocas-elephas/chronicle.lbug
 
 # Check schema
-lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug -c ":schema"
+lbug {agent_root}/commons/db/ocas-elephas/chronicle.lbug -c ":schema"
 
 # Non-interactive query
-echo "MATCH (e:Entity) RETURN count(e)" | lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug
+echo "MATCH (e:Entity) RETURN count(e)" | lbug {agent_root}/commons/db/ocas-elephas/chronicle.lbug
 
 # Read-only shell (safe alongside running process)
-lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug --readonly
+lbug {agent_root}/commons/db/ocas-elephas/chronicle.lbug --readonly
 
 # Show all tables
-lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug -c "CALL show_tables() RETURN *"
+lbug {agent_root}/commons/db/ocas-elephas/chronicle.lbug -c "CALL show_tables() RETURN *"
 
 # Check pending candidates
-lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug -c \
+lbug {agent_root}/commons/db/ocas-elephas/chronicle.lbug -c \
   "MATCH (c:Candidate {status: 'pending'}) RETURN c.id, c.proposed_type, c.confidence ORDER BY c.created_at ASC LIMIT 20"
 
 # Show warnings after COPY FROM
-lbug $OCAS_DATA_ROOT/db/ocas-elephas/chronicle.lbug -c "CALL show_warnings() RETURN *"
+lbug {agent_root}/commons/db/ocas-elephas/chronicle.lbug -c "CALL show_warnings() RETURN *"
 ```
 
 Lock error means another process has the file open READ_WRITE. Only Elephas should hold READ_WRITE. Other skills open as READ_ONLY. If locked unexpectedly, identify the offending process, close it, retry.
@@ -361,7 +360,7 @@ Entity.identity_state -- distinct (default) / possible_match / confirmed_same
 Concept.concept_type -- Event / Action / Idea
   Event subtypes (use as name prefix): TravelEvent, MeetingEvent, PurchaseEvent, AppointmentEvent, CommunicationEvent
 
-Signal.source_type -- journal / intake / memory / session_log
+Signal.source_type -- journal / journal / memory / session_log
 Signal.source_journal_type -- Observation / Action / Research (null for memory and session_log source types)
 Signal.user_relevance -- user / agent_only / unknown
 Signal.status -- active (awaiting processing) / consumed (ingested)

@@ -2,7 +2,7 @@
 
 Elephas produces Action Journals per spec-ocas-journal.md v1.3. Write a journal at the end of every run that makes a decision — consolidation, promotion, merge, rejection, ingestion. Runs missing journals are invalid.
 
-Journal path: `$OCAS_DATA_ROOT/journals/ocas-elephas/YYYY-MM-DD/{run_id}.json`
+Journal path: `{agent_root}/commons/journals/ocas-elephas/YYYY-MM-DD/{run_id}.json`
 
 Written atomically (write to `.tmp`, then rename). Never edit after writing.
 
@@ -130,7 +130,7 @@ import json, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-JOURNALS = Path("$OCAS_DATA_ROOT/journals/ocas-elephas").expanduser()
+JOURNALS = Path("{agent_root}/commons/journals/ocas-elephas").expanduser()
 
 def start_run():
     return {
