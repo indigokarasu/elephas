@@ -126,11 +126,11 @@ from pathlib import Path
 import json, uuid
 from datetime import datetime, timezone
 
-OCAS_BASE = Path("~/openclaw").expanduser()
-DB_PATH = OCAS_BASE / "db/ocas-elephas/chronicle.lbug"
-STAGING = OCAS_BASE / "db/ocas-elephas/staging"
-JOURNALS = OCAS_BASE / "journals/ocas-elephas"
-CONFIG_PATH = OCAS_BASE / "db/ocas-elephas/config.json"
+COMMONS_ROOT = Path("{agent_root}/commons").expanduser()
+DB_PATH = COMMONS_ROOT / "db/ocas-elephas/chronicle.lbug"
+STAGING = COMMONS_ROOT / "db/ocas-elephas/staging"
+JOURNALS = COMMONS_ROOT / "journals/ocas-elephas"
+CONFIG_PATH = COMMONS_ROOT / "db/ocas-elephas/config.json"
 WORKSPACE = Path("{agent_root}/workspace").expanduser()
 SESSIONS_ROOT = Path("{agent_root}/agents").expanduser()
 

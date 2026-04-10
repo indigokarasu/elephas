@@ -8,7 +8,7 @@ from pathlib import Path
 import json
 from datetime import datetime, timezone
 
-ROOT = Path("~/openclaw").expanduser()
+ROOT = Path("{agent_root}/commons").expanduser()
 DB_PATH = ROOT / "db/ocas-elephas/chronicle.lbug"
 STAGING = ROOT / "db/ocas-elephas/staging"
 JOURNALS = ROOT / "journals/ocas-elephas"

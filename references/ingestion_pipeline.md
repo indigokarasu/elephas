@@ -181,7 +181,7 @@ Extract:
 Extract entity mentions from natural language content in `MEMORY.md` and `memory/*.md`. Memory files are curated by the agent — entities found here have high user relevance because the agent already judged them worth remembering.
 
 For each extracted entity:
-- Create Signal with `source_type: "memory"`, `source_skill: "openclaw-memory"`
+- Create Signal with `source_type: "memory"`, `source_skill: "agent-memory"`
 - Set `user_relevance: "user"` — Memory/ content is inherently user-relevant
 - Extract identifiers when present (emails, names, handles mentioned in context)
 
@@ -197,7 +197,7 @@ User relevance depends on who said it:
 - Entities mentioned in `human` role messages → `user_relevance: "user"` (the user brought it up)
 - Entities mentioned only in `assistant` role messages → `user_relevance: "unknown"` (agent may be discussing user-relevant topics or its own research; needs corroboration)
 
-Create Signal with `source_type: "session_log"`, `source_skill: "openclaw-session"`.
+Create Signal with `source_type: "session_log"`, `source_skill: "agent-session"`.
 
 ### Signal structure
 

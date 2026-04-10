@@ -12,7 +12,7 @@ description: >
 metadata:
   author: Indigo Karasu
   email: mx.indigo.karasu@gmail.com
-  version: "3.2.1"
+  version: "3.2.2"
   hermes:
     tags: [knowledge-graph, ingestion, entities]
     category: memory
@@ -337,8 +337,8 @@ skill_okrs:
 - Corvus — reads Chronicle (read-only) for pattern analysis; reads Memory files and session logs
 - Scout — emits research signals via journal payloads with `user_relevance` field
 - Sift — emits research signals via journal payloads with `user_relevance` field
-- OpenClaw Memory — reads `MEMORY.md` and `memory/*.md` during deep consolidation
-- OpenClaw Sessions — reads session log transcripts during deep consolidation
+- Agent Memory — reads `MEMORY.md` and `memory/*.md` during deep consolidation
+- Agent Sessions — reads session log transcripts during deep consolidation
 
 
 ## Journal outputs
@@ -432,7 +432,7 @@ public
 This skill self-updates every 24 hours via:
 
 ```bash
-openclaw elephas.update
+elephas.update
 ```
 
 This pulls the latest version from GitHub and restarts the skill's background tasks if applicable.

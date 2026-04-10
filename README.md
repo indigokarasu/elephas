@@ -45,7 +45,7 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 - [Weave](https://github.com/indigokarasu/weave) -- read-only cross-DB queries for social graph enrichment
 - [Mentor](https://github.com/indigokarasu/mentor) -- reads Chronicle read-only for evaluation context
 
-**OpenClaw Platform**
+**Agent Platform**
 - Memory files -- reads `MEMORY.md` and `memory/*.md` during deep consolidation
 - Session logs -- reads session log transcripts during deep consolidation
 
@@ -99,4 +99,4 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 - Initial release as part of the unified OCAS skill suite
 ---
 
-*Elephas is part of the [OpenClaw Agent Suite](https://github.com/indigokarasu) -- a collection of interconnected skills for personal intelligence, autonomous research, and continuous self-improvement. Each skill owns a narrow responsibility and communicates with others through structured signal files, shared journals, and Chronicle, a long-term knowledge graph that accumulates verified facts over time.*
+*Elephas is part of the [OCAS Agent Suite](https://github.com/indigokarasu) -- a collection of interconnected skills for personal intelligence, autonomous research, and continuous self-improvement. Each skill owns a narrow responsibility and communicates with others through structured signal files, shared journals, and Chronicle, a long-term knowledge graph that accumulates verified facts over time.*
