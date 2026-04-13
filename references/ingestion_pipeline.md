@@ -13,8 +13,8 @@ Elephas reads from four sources per ingestion pass:
 3. **Memory files** (deep consolidation only): `{agent_root}/MEMORY.md` and `{agent_root}/memory/*.md`
    Extract entity mentions, relationships, and preferences from the agent's curated memory files. Track file content hashes in `{agent_root}/commons/db/ocas-elephas/memory_ingestion_log.jsonl` to avoid reprocessing unchanged files.
 
-4. **Session logs** (deep consolidation only): `{agent_root}/agents/*/sessions/*.jsonl`
-   Extract entity knowledge from conversation transcripts. Only process `message` entries from `human` and `assistant` roles — skip `toolResult`, `compaction`, `custom`, and all other machine-generated entry types. Track processed session IDs and byte offsets in `{agent_root}/commons/db/ocas-elephas/session_ingestion_log.jsonl`.
+4. **Session logs** (deep consolidation only): `{agent_root}/sessions/*.jsonl`
+   Extract entity knowledge from conversation transcripts. Only process entries with `role: "user"` or `role: "assistant"` — skip `tool`, `session_meta`, and all other machine-generated entry types. **Note**: Hermes session logs use `"user"` not `"human"` as the human role label. Track processed session IDs and byte offsets in `{agent_root}/commons/db/ocas-elephas/session_ingestion_log.jsonl`.
 
 Sources 1 and 2 run during every ingestion pass (every 15 minutes).
 Sources 3 and 4 run only during deep consolidation passes (daily at 4am).
@@ -189,12 +189,12 @@ For each extracted entity:
 
 Parse JSONL transcript files. For each entry:
 - Skip if `type` is not `"message"`
-- Skip if role is not `"human"` or `"assistant"`
-- Skip `toolResult`, `compaction`, `custom`, `custom_message`, `branch_summary` entry types
+- Skip if role is not `"user"` or `"assistant"` (Hermes uses `"user"`, not `"human"`)
+- Skip `tool`, `session_meta`, `toolResult`, `compaction`, `custom`, `custom_message`, `branch_summary` entry types
 - Extract entity mentions from the natural language message content
 
 User relevance depends on who said it:
-- Entities mentioned in `human` role messages → `user_relevance: "user"` (the user brought it up)
+- Entities mentioned in `user` role messages → `user_relevance: "user"` (the user brought it up)
 - Entities mentioned only in `assistant` role messages → `user_relevance: "unknown"` (agent may be discussing user-relevant topics or its own research; needs corroboration)
 
 Create Signal with `source_type: "session_log"`, `source_skill: "agent-session"`.
