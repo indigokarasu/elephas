@@ -12,7 +12,7 @@ description: >
 metadata:
   author: Indigo Karasu
   email: mx.indigo.karasu@gmail.com
-  version: "3.2.3"
+  version: "3.2.4"
   hermes:
     tags: [knowledge-graph, ingestion, entities]
     category: memory
@@ -192,6 +192,152 @@ Surface lock errors immediately. Do not retry silently.
 ## Auto-initialization
 
 Every command that opens the database runs `_ensure_init()` first. No manual init needed on first use.
+
+However, if the module is not importable or the database fails to initialize automatically, follow this manual setup procedure:
+
+### Manual Setup Procedure
+
+When `elephas` commands fail with import errors or missing table errors, run these steps:
+
+1. **Initialize directories and database schema:**
+   ```python
+   import real_ladybug as lb
+   from pathlib import Path
+   
+   DB_PATH = Path("/root/.hermes/db/hermes-elephas/chronicle.lbug")
+   
+   # Create directories
+   DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+   (DB_PATH.parent / "intake").mkdir(parents=True, exist_ok=True)
+   (DB_PATH.parent / "intake/processed").mkdir(parents=True, exist_ok=True)
+   (DB_PATH.parent / "staging").mkdir(parents=True, exist_ok=True)
+   (Path("/root/.hermes/journals/hermes-elephas")).mkdir(parents=True, exist_ok=True)
+   
+   # Run DDL to create tables
+   db = lb.Database(str(DB_PATH))
+   conn = lb.Connection(db)
+   
+   statements = [
+       """CREATE NODE TABLE Entity (
+           id STRING PRIMARY KEY, name STRING, entity_type STRING,
+           aliases STRING, identifiers STRING, possible_matches STRING,
+           merge_history STRING, identity_state STRING,
+           source_skill STRING, record_time STRING
+       )""",
+       """CREATE NODE TABLE Place (
+           id STRING PRIMARY KEY, name STRING, place_type STRING,
+           coordinates STRING, address STRING,
+           source_skill STRING, record_time STRING
+       )""",
+       """CREATE NODE TABLE Concept (
+           id STRING PRIMARY KEY, name STRING, description STRING,
+           concept_type STRING, event_time STRING,
+           source_skill STRING, record_time STRING
+       )""",
+       """CREATE NODE TABLE Thing (
+           id STRING PRIMARY KEY, name STRING, thing_type STRING,
+           metadata STRING, source_skill STRING, record_time STRING
+       )""",
+       """CREATE NODE TABLE Signal (
+           id STRING PRIMARY KEY, source_skill STRING,
+           source_type STRING, source_journal_type STRING,
+           payload STRING, user_relevance STRING,
+           timestamp STRING, status STRING
+       )""",
+       """CREATE NODE TABLE Candidate (
+           id STRING PRIMARY KEY, proposed_type STRING, proposed_data STRING,
+           supporting_signals STRING, confidence STRING,
+           user_relevance STRING, status STRING,
+           created_at STRING, resolved_at STRING, resolved_reason STRING
+       )""",
+       """CREATE NODE TABLE Inference (
+           id STRING PRIMARY KEY, inference_type STRING, confidence STRING,
+           supporting_nodes STRING, description STRING, created_at STRING
+       )""",
+       """CREATE REL TABLE Relates (
+           FROM Entity TO Entity,
+           FROM Entity TO Concept,
+           FROM Entity TO Place,
+           FROM Entity TO Thing,
+           FROM Concept TO Place,
+           FROM Concept TO Concept,
+           relationship_type STRING, evidence_refs STRING, confidence STRING,
+           event_time STRING, record_time STRING,
+           valid_from STRING, valid_until STRING
+       )""",
+       "CREATE REL TABLE Supports (FROM Signal TO Candidate)",
+       """CREATE REL TABLE Promotes (
+           FROM Candidate TO Entity,
+           FROM Candidate TO Place,
+           FROM Candidate TO Concept,
+           FROM Candidate TO Thing
+       )""",
+       """CREATE REL TABLE Infers (
+           FROM Inference TO Entity,
+           FROM Inference TO Concept,
+           FROM Inference TO Place
+       )""",
+   ]
+   
+   for stmt in statements:
+       conn.execute(stmt)
+   ```
+
+2. **Create default config.json:**
+   ```python
+   from datetime import datetime, timezone
+   import json
+   
+   CONFIG_PATH = Path("/root/.hermes/db/hermes-elephas/config.json")
+   now = datetime.now(timezone.utc).isoformat()
+   config = {
+       "skill_id": "hermes-elephas",
+       "skill_version": "3.1.0",
+       "config_version": "2",
+       "created_at": now,
+       "updated_at": now,
+       "consolidation": {"immediate_interval_minutes": 15, "deep_interval_hours": 24},
+       "identity": {"auto_merge_threshold": 0.90, "flag_review_threshold": 0.70},
+       "inference": {"enabled": True, "min_supporting_nodes": 3},
+       "retention": {"days": 0},
+       "memory_ingestion": {"enabled": True, "cadence": "deep"},
+       "session_log_ingestion": {
+           "enabled": True, "cadence": "deep",
+           "entry_types": ["message"], "roles": ["human", "assistant"]
+       },
+       "signal_normalization": {
+           "enabled": True, "log_conversions": True, "requeue_errors_on_enable": True
+       }
+   }
+   CONFIG_PATH.write_text(json.dumps(config, indent=2))
+   ```
+
+3. **Test with a simple signal:**
+   Create a test signal file in `~/.hermes/db/hermes-elephas/intake/test.signal.json`:
+   ```json
+   {
+     "id": "test_signal_001",
+     "source_skill": "hermes-scout",
+     "source_type": "intake",
+     "source_journal_type": "Research",
+     "payload": {
+       "name": "Alice Johnson",
+       "type": "Person",
+       "confidence": "high",
+       "user_relevance": "user",
+       "resolved_handles": {"twitter": "@alicej", "email": "alice.johnson@example.com"},
+       "source_refs": ["https://example.com/alice-profile"],
+       "findings_summary": "Researcher mentioned this person in context of project collaboration"
+     },
+     "user_relevance": "user",
+     "emitted_at": "2026-04-17T08:00:00Z"
+   }
+   ```
+
+4. **Run the immediate consolidation script:**
+   ```bash
+   python3 /root/.hermes/2026-04-06_21-34-18/skills/elephas/scripts/immediate_consolidate.py
+   ```
 
 Read `references/init_pattern.md` for the `_open_db` implementation pattern. Full DDL is in `references/schemas.md`.
 
@@ -411,6 +557,155 @@ Registration during `elephas.init`:
 6. On failure → retry once. If second attempt fails, report the error and stop.
 7. Output exactly: `I updated Elephas from version {old} to {new}`
 
+
+## Operational notes
+## Operational notes
+See `references/operational_notes.md` for production lessons:
+- LadybugDB stores complex fields in internal format (not standard JSON) — always handle `json.JSONDecodeError`
+- Entity observation field names vary across skills (`entity` vs `name`, `entity_type` vs `type`) — check both top-level and `decision.payload`
+- Use `MERGE` on primary key for idempotent writes to avoid duplicate signals
+- Complex multi-step operations need Python script files (not inline terminal)
+- `show_tables()` returns `[table_id, table_name, ...]` — name is at index 1
+
+### Payload format bugs (critical)
+
+**Python repr payloads**: Some skills emit signal payloads using `str(dict)` instead of `json.dumps(dict)`. This produces `{name: value, type: Entity}` — unquoted keys, single-quoted string values, special chars unescaped. When stored in `Signal.payload`, `json.loads()` fails silently and `_create_candidate` cannot parse the name, creating orphan signals with no candidates.
+
+**Detection**: `json.loads()` raises `JSONDecodeError`. Fall back to the repr parser:
+
+```python
+def parse_repr_payload(text):
+    """Parse Python repr format: {key: value, key: value}"""
+    if not text: return {}
+    text = text.strip()
+    if not text.startswith('{') or not text.endswith('}'): return {}
+    result = {}; inner = text[1:-1]
+    pairs = []; key = ""; val = ""; depth = 0; in_key = True; i = 0
+    while i < len(inner):
+        c = inner[i]
+        if c == '{': depth += 1; val += c
+        elif c == '}': depth -= 1; val += c
+        elif c == ':' and depth == 0 and in_key: in_key = False
+        elif c == ',' and depth == 0 and not in_key:
+            pairs.append((key.strip(), val.strip())); key = ""; val = ""; in_key = True
+        else:
+            if in_key: key += c
+            else: val += c
+        i += 1
+    if key or val: pairs.append((key.strip(), val.strip()))
+    for k, v in pairs:
+        if v.startswith('"') and v.endswith('"'): v = v[1:-1]
+        elif v.startswith("'") and v.endswith("'"): v = v[1:-1]
+        result[k] = v
+    return result
+```
+
+**Remediation**: On any parse failure, attempt `parse_repr_payload()` before skipping the signal. Fix stored payloads by re-serializing with `json.dumps(parsed)`.
+
+**Name extraction**: Custodian journals use `entity` as type identifier (`Entity/Gateway`) and `description` as the display name. Use:
+```python
+def _extract_name(e):
+    if e.get("name"): return e["name"]
+    if e.get("description"): return e["description"]
+    ev = e.get("entity","")
+    if ev and "/" in ev: return ev.split("/")[-1]
+    return ev
+```
+
+**Name extraction**: Custodian journals use `entity` as type identifier (`Entity/Gateway`) and `description` as the display name. Use:
+```python
+def _extract_name(e):
+    if e.get("name"): return e["name"]
+    if e.get("description"): return e["description"]
+    ev = e.get("entity","")
+    if ev and "/" in ev: return ev.split("/")[-1]
+    return ev
+```
+
+**entities_observed field location**: Journal skills vary in where they emit `entities_observed`. Always check **both**:
+1. Top-level: `j.get("entities_observed", [])`
+2. Nested: `j.get("decision", {}).get("payload", {}).get("entities_observed", [])`
+
+Many skills (Taste, Custodian) use top-level only. Scout uses top-level. Different skills have different conventions.
+
+**Deduplication**: The `CONTAINS $nm` query on `proposed_data` fails if the payload is malformed repr. Always parse the payload first, extract the name, then use it for deduplication. Never let a malformed payload cause silent signal loss.
+
+**Skipped signals leave orphans**: If `_create_candidate` fails partway through (e.g. on dedup query), the signal is still `active` but has no candidate. Always verify that every active signal eventually gets a Supports edge. Run a cleanup pass periodically:
+```cypher
+MATCH (s:Signal {status: 'active'})
+WHERE NOT EXISTS { MATCH (s)-[:Supports]->() }
+RETURN s.id, s.payload, s.user_relevance
+```
+
+### Ingestion log staleness
+
+Failed runs write ingestion log entries with `signals_created: 0`. Subsequent runs skip those files because their paths are already logged. **Always clean stale entries** (signals_created=0 from interrupted runs) before re-processing:
+```python
+kept = []
+for line in ingestion_log:
+    e = json.loads(line)
+    if not (e.get("signals_created", 0) == 0 and "TFAILURE_TIME" in e.get("ingested_at", "")):
+        kept.append(line)
+# rewrite ingestion_log with kept
+```
+
+### Path resolution (critical)
+
+Elephas uses two separate database directories that are easy to confuse:
+
+| Prefix | Path | Used by |
+|---|---|---|
+| `hermes-elephas` | `/root/.hermes/db/hermes-elephas/` | `immediate_consolidate.py` script (old, wrong) |
+| `ocas-elephas` | `/root/.hermes/commons/db/ocas-elephas/` | Skill spec and actual Chronicle database |
+
+**The `immediate_consolidate.py` script at `~/.hermes/2026-04-06_21-34-18/skills/elephas/scripts/immediate_consolidate.py` has hardcoded paths to `hermes-elephas` (wrong DB). Always use Python scripts you write inline that reference `commons/db/ocas-elephas/` — never run the shipped script directly without patching paths.**
+
+Confirm the correct DB path before every run:
+```python
+from pathlib import Path
+DB_PATH = Path("/root/.hermes/commons/db/ocas-elephas/chronicle.lbug")
+assert DB_PATH.exists(), f"Wrong path: {DB_PATH}"
+```
+
+### F-string escaping in LadybugDB queries
+
+When building Cypher queries with f-strings, escape internal quotes carefully. This FAILS:
+```python
+conn.execute(f"... description = '{_esc(pdata.get("findings_summary",""))}'")  # SyntaxError
+```
+Use single-level escaping:
+```python
+fs = pdata.get("findings_summary","") or ""
+conn.execute(f"... description = '{_esc(fs)}'")  # OK
+```
+
+### Promotes edge creation requires label-aware MATCH (critical)
+
+When creating Promotes edges in `_promote_candidate()`, the target entity node must be matched by its specific label. Using a label-less `MERGE (e {{id: $eid}})` causes LadybugDB to fail with:
+
+```
+Binder exception: Create node e with multiple node labels is not supported.
+```
+
+**Wrong** (in consolidate_immediate.py line ~147):
+```python
+conn.execute(f'''
+    MATCH (c:Candidate {{id: $cid}})
+    MERGE (e {{id: $eid}})
+    CREATE (c)-[:Promotes]->(e)
+''', {'cid': cand_id, 'eid': ent_id})
+```
+
+**Correct** — use the `node_type` variable (Entity/Place/Concept/Thing):
+```python
+conn.execute(f'''
+    MATCH (c:Candidate {{id: $cid}})
+    MATCH (e:{node_type} {{id: $eid}})
+    CREATE (c)-[:Promotes]->(e)
+''', {'cid': cand_id, 'eid': ent_id})
+```
+
+The entity node was already created by the preceding `MERGE` with the correct label. The Promotes edge just needs to `MATCH` it, not re-`MERGE` it without a label. Fixed 2026-04-18.
 
 ## Visibility
 
