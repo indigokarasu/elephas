@@ -163,10 +163,12 @@ Track byte offset per session file to resume from where the last pass left off. 
 
 ### From Observation Journals
 
-Extract:
-- `decision.payload.entities_observed` → one Signal per entity_id, type=Observation
-- `decision.payload.relationships_observed` → one Signal per relationship pair
-- `decision.payload.preferences_observed` → one Signal per preference
+Extract from whichever location the skill places them (varies by skill — always check both):
+- `entities_observed` — top-level first, then fallback to `decision.payload.entities_observed` → one Signal per entity_id, type=Observation
+- `relationships_observed` — top-level first, then fallback to `decision.payload.relationships_observed` → one Signal per relationship pair
+- `preferences_observed` — top-level first, then fallback to `decision.payload.preferences_observed` → one Signal per preference
+
+**Important**: Journal field location varies across skills. Many skills (Scout, Sift, Taste, Weave, Custodian) emit `entities_observed` at the top level of the journal JSON, not nested under `decision.payload`. Always check top-level first, then fall back to `decision.payload`. The `signal` field similarly varies — it may be at top level (legacy format with `signal_id`) or nested under `decision.payload.signal`.
 
 ### From Action Journals
 
@@ -188,10 +190,14 @@ For each extracted entity:
 ### From Session logs
 
 Parse JSONL transcript files. For each entry:
-- Skip if `type` is not `"message"`
-- Skip if role is not `"user"` or `"assistant"` (Hermes uses `"user"`, not `"human"`)
+- Skip if `type` is not `\"message\"`
+- Skip if role is not `\"user\"` or `\"assistant\"` (Hermes uses `\"user\"`, not `\"human\"`)
 - Skip `tool`, `session_meta`, `toolResult`, `compaction`, `custom`, `custom_message`, `branch_summary` entry types
 - Extract entity mentions from the natural language message content
+
+**Session file format note (2026-04-18):** Session files at `/root/.hermes/sessions/` are JSON dicts with `messages` array, not JSONL. Access via `data.get('messages', [])`. Roles are `"user"`, `"assistant"`, `"tool"`.
+
+**Regex extraction warning:** Naive capitalized-name regex (`[A-Z][a-z]+ [A-Z][a-z]+`) on session content produces many false positives from skill names, concept phrases, and header text. Filter against known non-entity patterns or require multiple independent mentions before creating signals.
 
 User relevance depends on who said it:
 - Entities mentioned in `user` role messages → `user_relevance: "user"` (the user brought it up)
