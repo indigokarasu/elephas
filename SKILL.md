@@ -689,23 +689,71 @@ Binder exception: Create node e with multiple node labels is not supported.
 
 **Wrong** (in consolidate_immediate.py line ~147):
 ```python
-conn.execute(f'''
-    MATCH (c:Candidate {{id: $cid}})
-    MERGE (e {{id: $eid}})
-    CREATE (c)-[:Promotes]->(e)
-''', {'cid': cand_id, 'eid': ent_id})
+conn.execute(f'''\n    MATCH (c:Candidate {{id: $cid}})\n    MERGE (e {{id: $eid}})\n    CREATE (c)-[:Promotes]->(e)\n''', {'cid': cand_id, 'eid': ent_id})
 ```
 
 **Correct** — use the `node_type` variable (Entity/Place/Concept/Thing):
 ```python
-conn.execute(f'''
-    MATCH (c:Candidate {{id: $cid}})
-    MATCH (e:{node_type} {{id: $eid}})
-    CREATE (c)-[:Promotes]->(e)
-''', {'cid': cand_id, 'eid': ent_id})
+conn.execute(f'''\n    MATCH (c:Candidate {{id: $cid}})\n    MATCH (e:{node_type} {{id: $eid}})\n    CREATE (c)-[:Promotes]->(e)\n''', {'cid': cand_id, 'eid': ent_id})
 ```
 
 The entity node was already created by the preceding `MERGE` with the correct label. The Promotes edge just needs to `MATCH` it, not re-`MERGE` it without a label. Fixed 2026-04-18.
+
+### Node type property names (critical)
+
+When creating nodes in Chronicle, each node type has different property names for its type field. Using the wrong property name causes `Binder exception: Cannot find property {prop} for {var}`.
+
+**Property mapping:**
+| Node Type | Type Property | Example |
+|---|---|---|
+| Entity | `entity_type` | `entity_type: 'Person'` |
+| Place | `place_type` | `place_type: 'Restaurant'` |
+| Concept | `concept_type` | `concept_type: 'Event'` |
+| Thing | `thing_type` | `thing_type: 'Document'` |
+
+**Wrong** (using `entity_type` for all types):
+```python
+# Fails for Place/Concept/Thing nodes
+conn.execute(f"""
+    CREATE (e:{node_type} {{
+        id: '{entity_id}',
+        name: '{name}',
+        entity_type: '{proposed_type}',  # WRONG for Place/Concept/Thing
+        ...
+    }})
+""")
+```
+
+**Correct** — use type-specific property names:
+```python
+type_property_map = {
+    "Entity": "entity_type",
+    "Place": "place_type", 
+    "Concept": "concept_type",
+    "Thing": "thing_type"
+}
+type_property = type_property_map.get(node_type, "entity_type")
+
+conn.execute(f"""
+    CREATE (e:{node_type} {{
+        id: '{entity_id}',
+        name: '{name}',
+        {type_property}: '{proposed_type}',
+        ...
+    }})
+""")
+```
+
+Also applies to MATCH queries when filtering by type:
+```python
+# Wrong - fails for Place nodes
+conn.execute("MATCH (p:Place) WHERE p.entity_type = 'Restaurant' RETURN p")
+
+# Correct
+conn.execute("MATCH (p:Place) WHERE p.place_type = 'Restaurant' RETURN p")
+```
+
+Discovered 2026-04-18 during immediate consolidation when promoting candidates to Place/Concept/Thing nodes.
 
 ## Visibility
 
