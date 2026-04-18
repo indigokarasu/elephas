@@ -378,3 +378,14 @@ Relates.relationship_type -- use ontology standard types:
   Entity-Thing: created, owns, uses
   Concept-Place: occurred_at, located_in
   Concept-Concept: related_to, derived_from, part_of
+
+## Node Type Property Names
+
+Each node type in Chronicle stores its discriminator on a type-specific property, not a uniform `type` field:
+
+- Entity nodes → `entity_type` (e.g. "person", "organization")
+- Place nodes → `place_type` (e.g. "city", "country")
+- Concept nodes → `concept_type`
+- Thing nodes → `thing_type`
+
+Queries and ingestion code must use the type-specific property name for each node class.
