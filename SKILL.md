@@ -918,12 +918,12 @@ The `Candidate.confidence` field stores confidence in two formats:
 - **Text**: `"high"`, `"medium"`, `"low"` — from Scout/Sift/Custodian signals
 - **Numeric string**: `"0.3"`, `"0.6"` — from Taste/other signals with float confidence
 
-When filtering promotable candidates, handle both formats:
+When filtering promotable candidates, handle all formats including legacy abbreviations:
 
 ```python
 def is_promotable(conf_str):
     if conf_str in ("high",): return True
-    if conf_str == "medium": return True  # Medium = promotable
+    if conf_str in ("medium", "med"): return True  # med = legacy abbreviation used by some candidates
     try:
         return float(conf_str) >= 0.6
     except:
