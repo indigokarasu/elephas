@@ -602,25 +602,29 @@ def parse_repr_payload(text):
 
 **Remediation**: On any parse failure, attempt `parse_repr_payload()` before skipping the signal. Fix stored payloads by re-serializing with `json.dumps(parsed)`.
 
-**Name extraction**: Custodian journals use `entity` as type identifier (`Entity/Gateway`) and `description` as the display name. Use:
+**Name extraction**: Custodian and Mentor journals use different field conventions for entity identifiers. Use this robust version that handles all variants:
 ```python
 def _extract_name(e):
-    if e.get("name"): return e["name"]
-    if e.get("description"): return e["description"]
-    ev = e.get("entity","")
-    if ev and "/" in ev: return ev.split("/")[-1]
-    return ev
+    if isinstance(e, str): return e
+    if isinstance(e, (int, float)): return str(e)
+    for field in ["name", "description", "entity_id", "entity"]:
+        val = e.get(field, "")
+        if val and str(val).strip() and str(val) != "0":
+            sval = str(val)
+            # entity_id may have namespace prefix like "weave:sync-contacts"
+            if field == "entity_id" and ":" in sval:
+                return sval.split(":", 1)[-1]
+            # entity may have type path like "Entity/Gateway"
+            if field == "entity" and "/" in sval:
+                return sval.split("/")[-1]
+            return sval
+    return ""
 ```
 
-**Name extraction**: Custodian journals use `entity` as type identifier (`Entity/Gateway`) and `description` as the display name. Use:
-```python
-def _extract_name(e):
-    if e.get("name"): return e["name"]
-    if e.get("description"): return e["description"]
-    ev = e.get("entity","")
-    if ev and "/" in ev: return ev.split("/")[-1]
-    return ev
-```
+Field conventions by source:
+- **Custodian**: uses `entity` (type path like `Entity/Gateway`) and `description` (display name)
+- **Mentor**: uses `entity_type` (like `Entity/AI`) and `entity_id` (namespaced like `ocas-dispatch`)
+- **Scout/Sift**: uses `name` and `type`
 
 **entities_observed field location**: Journal skills vary in where they emit `entities_observed`. Always check **both**:
 1. Top-level: `j.get("entities_observed", [])`
@@ -1010,11 +1014,12 @@ Discovered 2026-04-19.
 
 ### Ingestion log key inconsistency (critical)
 
-The `ingestion_log.jsonl` file uses **two different keys** for the journal file path:
+The `ingestion_log.jsonl` file uses **three different keys** for the journal file path:
 - `"file"` — used by most ingestion entries (Scout, Sift, Custodian, Bower, etc.)
 - `"journal_file"` — used by Elephas' own consolidation journal entries
+- `"journal_path"` — used by older ingestion runs and some Custodian entries
 
-When loading the ingestion log to track processed files, always check both keys:
+When loading the ingestion log to track processed files, always check all three keys:
 
 **Wrong** (crashes on Elephas consolidation entries):
 ```python
@@ -1027,12 +1032,16 @@ for line in ingestion_log:
 ```python
 for line in ingestion_log:
     entry = json.loads(line)
-    file_key = entry.get("file") or entry.get("journal_file")
+    file_key = entry.get("file") or entry.get("journal_file") or entry.get("journal_path")
     if file_key:
         processed_files[file_key] = entry
 ```
 
-Discovered 2026-04-19 during ingest+consolidation run.
+**Impact of missing `journal_path`**: In a 2026-04-19 run, 510 entries used the `journal_path` key. Because the pipeline only checked `file` and `journal_file`, all those files were treated as unprocessed and re-ingested. Files that previously created signals (signals_created > 0) were logged again with signals_created: 0 (no entities found on second pass), creating confusing duplicate entries.
+
+**Empty file path entries**: If the ingestion log contains entries with empty `"file": ""` values, these are from older ingestion formats that used a different key. Don't let empty-path entries cause crashes — always check `if file_key:` before adding to the processed set.
+
+Discovered 2026-04-19 during ingest+consolidation run. Updated 2026-04-19 after discovering `journal_path` variant.
 
 ### Stale ingestion log cleanup (pre-run requirement)
 
@@ -1095,11 +1104,13 @@ No `confidence` field present. Contrast with Scout/Sift entities which include `
 
 **Impact**: Taste-sourced candidates are never promoted during immediate consolidation because they lack `high` or `medium` confidence. They remain in the pending queue indefinitely unless manually promoted or the confidence is set during deep consolidation.
 
-**Workaround**: For user-relevant Taste entities that are clearly correct (venues from calendar events, restaurants from emails), manually promote via `elephas.candidates.promote` or run deep consolidation which may apply different confidence scoring.
+**Broader issue**: This isn't limited to Taste. Weave expansion journals also sometimes omit confidence (e.g., `"confidence": "med"` or missing entirely). The `is_promotable()` helper handles `"med"` as a valid abbreviation, but missing confidence fields always default to `low` and block promotion.
 
-**Root cause**: The Taste skill's journal format doesn't emit confidence for extracted entities. Consider updating the Taste skill to include confidence scores based on extraction certainty.
+**Workaround**: For user-relevant entities that are clearly correct (venues from calendar events, restaurants from emails, contacts from Weave sync), manually promote via `elephas.candidates.promote`. During manual promotion, override the confidence to `"medium"` for user-relevant entities from trusted source skills.
 
-Discovered 2026-04-19 during ingestion+consolidation run.
+**Root cause**: Source skills' journal formats don't consistently emit confidence for extracted entities. Consider updating source skills to include confidence scores based on extraction certainty.
+
+Discovered 2026-04-19 during ingestion+consolidation run. Weave variant also observed 2026-04-19.
 
 ### Cypher CREATE closing paren bug (critical)
 
@@ -1194,6 +1205,60 @@ for line in lines:
 **Prevention**: Don't log ingestion entries until the file is fully processed. Use a temporary log during processing, then commit atomically.
 
 Discovered 2026-04-19 during ingest+consolidate run.
+
+### execute_code sandbox isolation for multi-step operations (critical)
+
+Each `execute_code` call runs in a completely isolated context — variables, imports, and state from one call are **not available** in the next. This makes incremental debugging of ingestion pipelines impossible within a session.
+
+**Wrong** (trying to build state across calls):
+```python
+# Call 1: define helpers
+DB_PATH = Path("/root/.hermes/commons/db/ocas-elephas/chronicle.lbug")
+def _esc(s): ...
+
+# Call 2: use helpers — NameError! DB_PATH and _esc don't exist
+conn = lb.Connection(lb.Database(str(DB_PATH)))
+```
+
+**Correct** — write the entire pipeline to a Python file, then execute it:
+```python
+# Write complete script to file
+write_file("commons/db/ocas-elephas/elephas_pipeline.py", full_script_content)
+
+# Run via terminal
+terminal("python3 /root/.hermes/commons/db/ocas-elephas/elephas_pipeline.py")
+```
+
+**Or** — put everything in a single `execute_code` call with all helpers inline. Never assume cross-call state.
+
+This applies to any Elephas ingestion/consolidation script that needs 3+ tool calls. The `execute_code` sandbox resets between calls.
+
+Discovered 2026-04-19 during ingest+consolidation run when attempting incremental pipeline building.
+
+### Self-contained pipeline script pattern (recommended)
+
+For reliable ingest+consolidate runs, use a self-contained Python script at `{agent_root}/commons/db/ocas-elephas/elephas_pipeline.py` rather than calling individual commands. The script should:
+
+1. Clean stale ingestion log entries (entries with `signals_created: 0` older than 15 min)
+2. Load processed files checking **all three** log key variants (`file`, `journal_file`, `journal_path`)
+3. Scan journal directories for unprocessed `.json` files
+4. Extract `entities_observed` from both top-level and `decision.payload` paths
+5. Handle all entity type variants (strings, ints, dicts, repr-format payloads)
+6. Create Signal → Candidate chains with proper `Supports` edges
+7. Run immediate consolidation with `is_promotable()` confidence checking
+8. Write Action Journal and decision records
+
+A tested reference implementation exists at `/root/.hermes/commons/db/ocas-elephas/elephas_pipeline.py`. When running via cron or scheduled tasks, prefer writing the script to disk and executing via `terminal()` rather than multi-step `execute_code` calls (see sandbox isolation note above).
+
+**Verification after each run:**
+```cypher
+-- Check for orphan signals (should be 0)
+MATCH (s:Signal {status: 'active'}) WHERE NOT EXISTS { MATCH (s)-[:Supports]->() } RETURN count(s);
+-- Check pending by relevance
+MATCH (c:Candidate {status: 'pending'}) RETURN c.user_relevance, count(c) GROUP BY c.user_relevance;
+```
+
+Created 2026-04-19 after multiple debugging iterations revealed the need for a single authoritative pipeline script.
 
 ### elephas_run_v4.py parameter binding bug
 
