@@ -1052,6 +1052,134 @@ Taste journal signals with `user_relevance: user` in `latest_ingestion_signals.j
 
 Discovered 2026-04-19.
 
+### Cypher CREATE closing paren bug (critical)
+
+When writing `CREATE` statements with f-strings, the `}}` escape produces a single `}` but the Cypher statement also needs a closing `)` for the node pattern. Missing `)` causes:
+
+```
+Parser exception: Invalid input <CREATE (c:Candidate {...}: expected rule oC_SingleQuery
+```
+
+**Wrong** — `}}` on its own line, then `"""`:
+```python
+conn.execute(f"""
+    CREATE (c:Candidate {{
+        id: '{_esc(cand_id)}',
+        proposed_type: '{_esc(proposed_type)}',
+        ...
+        resolved_reason: ''
+    }}
+""")
+```
+
+**Correct** — `}})` to close both the Cypher object and the CREATE pattern:
+```python
+conn.execute(f"""
+    CREATE (c:Candidate {{
+        id: '{_esc(cand_id)}',
+        proposed_type: '{_esc(proposed_type)}',
+        ...
+        resolved_reason: ''
+    }})""")
+```
+
+This affects ALL `CREATE (n:Label { ... })` statements — Candidate, Entity, Place, Concept, Thing. The `})` must be on the same line or the parser sees an unclosed pattern.
+
+Also applies to `CREATE (e:Entity { ... })` node creation in consolidation. Same fix: `}})"""` not `}}\n"""`.
+
+Discovered 2026-04-19 during ingest+consolidate run.
+
+### _extract_name() doesn't handle int/float types (critical)
+
+When `entities_observed` is an integer (e.g., `0` — Elephas' own consolidation journals report `entities_observed: 0` as a count, not a list), `_extract_name(e)` crashes with:
+
+```
+argument of type 'int' is not iterable
+```
+
+This happens because the function tries `"/" in ev` where `ev` is an int (from `e.get("entity", "")` returning `0`).
+
+**Wrong**:
+```python
+def _extract_name(e):
+    if isinstance(e, str): return e
+    if e.get("name"): return e["name"]
+    ev = e.get("entity", "")
+    if ev and "/" in ev:  # TypeError if ev is int
+        return ev.split("/")[-1]
+    return ev
+```
+
+**Correct** — guard all type checks:
+```python
+def _extract_name(e):
+    if isinstance(e, str): return e
+    if isinstance(e, (int, float)): return str(e)
+    if e.get("name"): return e["name"]
+    if e.get("description"): return e["description"]
+    ev = e.get("entity", "")
+    if ev and "/" in str(ev): return str(ev).split("/")[-1]
+    return str(ev)
+```
+
+Also affects `_extract_type()`, `_get_user_relevance()`, and confidence extraction — all must handle non-dict entity values.
+
+Discovered 2026-04-19 during ingest+consolidate run.
+
+### Current-run stale ingestion log entries (critical)
+
+If ingestion fails partway through (e.g., Cypher bug prevents candidate creation), the script logs ALL files with `signals_created: 0`. The standard cleanup only removes entries older than 1 hour. A re-run within the same hour finds 0 new files because they're all already logged.
+
+**Cleanup pattern for current-run failures**:
+```python
+# Remove entries from this run's timestamp range with signals=0
+for line in lines:
+    entry = json.loads(line)
+    ingested_at = entry.get("ingested_at", "")
+    # Match this run's timestamp prefix (e.g., "2026-04-19T12:37")
+    if RUN_TIMESTAMP_PREFIX in ingested_at and entry.get("signals_created", 0) == 0:
+        continue  # skip this entry
+    kept.append(line)
+```
+
+**Prevention**: Don't log ingestion entries until the file is fully processed. Use a temporary log during processing, then commit atomically.
+
+Discovered 2026-04-19 during ingest+consolidate run.
+
+### elephas_run_v4.py parameter binding bug
+
+The `elephas_run_v4.py` script in the DB directory fails with:
+
+```
+RuntimeError: Runtime exception: Trying to a create a vector with ANY type. This should not happen. Data type is expected to be resolved during binding.
+```
+
+This occurs in `create_signal_node()` when passing parameters via `conn.execute()` with a dict of parameters. LadybugDB's parameter binding has issues with certain data types in the parameter dict.
+
+**Symptoms**: Script crashes on first signal creation attempt during ingestion.
+
+**Workaround**: Write inline Python scripts that use string interpolation with proper escaping instead of parameter binding:
+
+```python
+# Wrong (parameter binding - fails):
+conn.execute(
+    "MERGE (s:Signal {id: $id}) SET s.payload = $pl ...",
+    {"id": sid, "pl": payload_str}
+)
+
+# Correct (string interpolation - works):
+conn.execute(f"""
+    MERGE (s:Signal {{id: '{esc(sid)}'}})
+    SET s.payload = '{esc(payload_str)}'
+""")
+```
+
+**Root cause**: LadybugDB's parameter binding doesn't handle mixed-type parameter dicts well. String interpolation with proper escaping is more reliable.
+
+**Alternative**: Use the manual ingestion approach documented in this conversation - write a custom script that handles heterogeneous journal structures and uses string interpolation.
+
+Discovered 2026-04-19.
+
 ## Visibility
 
 public
