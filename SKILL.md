@@ -1008,6 +1008,32 @@ result = conn.execute("""
 
 Discovered 2026-04-19.
 
+### Ingestion log key inconsistency (critical)
+
+The `ingestion_log.jsonl` file uses **two different keys** for the journal file path:
+- `"file"` — used by most ingestion entries (Scout, Sift, Custodian, Bower, etc.)
+- `"journal_file"` — used by Elephas' own consolidation journal entries
+
+When loading the ingestion log to track processed files, always check both keys:
+
+**Wrong** (crashes on Elephas consolidation entries):
+```python
+for line in ingestion_log:
+    entry = json.loads(line)
+    processed_files[entry["file"]] = entry  # KeyError if key is "journal_file"
+```
+
+**Correct**:
+```python
+for line in ingestion_log:
+    entry = json.loads(line)
+    file_key = entry.get("file") or entry.get("journal_file")
+    if file_key:
+        processed_files[file_key] = entry
+```
+
+Discovered 2026-04-19 during ingest+consolidation run.
+
 ### Stale ingestion log cleanup (pre-run requirement)
 
 Before running ingestion, always clean stale entries from `ingestion_log.jsonl`. Failed/interrupted runs write entries with `signals_created: 0`, causing subsequent runs to skip those files.
