@@ -755,6 +755,49 @@ conn.execute("MATCH (p:Place) WHERE p.place_type = 'Restaurant' RETURN p")
 
 Discovered 2026-04-18 during immediate consolidation when promoting candidates to Place/Concept/Thing nodes.
 
+### LadybugDB Connection API (critical)
+
+The `real_ladybug.Connection` class does **not** accept a `mode` parameter. The correct signature is:
+
+```python
+Connection.__init__(self, database: Database, num_threads: int = 0)
+```
+
+**Wrong** (from shipped script and some docs):
+```python
+conn = lb.Connection(db, mode="READ_WRITE")  # TypeError: unexpected keyword argument 'mode'
+```
+
+**Correct** — no mode parameter needed:
+```python
+db = lb.Database(str(DB_PATH))
+conn = lb.Connection(db)  # Works — all connections are read-write capable
+```
+
+The `immediate_consolidate.py` shipped script uses the wrong API. Always write inline scripts with the correct constructor. Discovered 2026-04-19.
+
+### entities_observed field type variation (critical)
+
+The `entities_observed` field in journal entries can be either:
+- **List of dicts** — skill journals from Scout, Weave, Sift, etc. containing actual entity observations
+- **Integer (0)** — Elephas' own consolidation journal files reporting `entities_observed: 0` as a count
+
+When processing journal files, always check the type before calling `.extend()`:
+
+**Wrong** (crashes on integer):
+```python
+entities_observed.extend(journal_data.get("entities_observed", []))  # TypeError if int
+```
+
+**Correct**:
+```python
+top_entities = journal_data.get("entities_observed", [])
+if isinstance(top_entities, list):
+    entities_observed.extend(top_entities)
+```
+
+This applies to both top-level and nested `decision.payload.entities_observed` fields. Discovered 2026-04-19.
+
 ## Visibility
 
 public
