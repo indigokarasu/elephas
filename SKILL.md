@@ -755,6 +755,38 @@ conn.execute("MATCH (p:Place) WHERE p.place_type = 'Restaurant' RETURN p")
 
 Discovered 2026-04-18 during immediate consolidation when promoting candidates to Place/Concept/Thing nodes.
 
+### QueryResult API (critical)
+
+`conn.execute()` returns a `real_ladybug.query_result.QueryResult` object. It is **iterable** (supports `for row in result`) but does **not** support `len()`, indexing, or direct boolean evaluation.
+
+**Wrong** (crashes):
+```python
+result = conn.execute("MATCH (c:Candidate) RETURN c.id")
+print(len(result))          # TypeError: no len()
+if result:                  # Works but misleading (always True)
+    first = result[0]       # TypeError: not subscriptable
+```
+
+**Correct** — iterate or collect to list:
+```python
+result = conn.execute("MATCH (c:Candidate) RETURN c.id")
+rows = [row for row in result]    # Convert to list
+print(len(rows))                  # Now works
+
+# Or iterate directly:
+for row in result:
+    print(row[0])  # row is a list of column values
+```
+
+**Correct** — count via Cypher instead of len():
+```python
+result = conn.execute("MATCH (c:Candidate {status: 'pending'}) RETURN count(c)")
+rows = [row for row in result]
+count = rows[0][0] if rows else 0
+```
+
+Discovered 2026-04-19 during ingestion+consolidation run.
+
 ### LadybugDB Connection API (critical)
 
 The `real_ladybug.Connection` class does **not** accept a `mode` parameter. The correct signature is:
