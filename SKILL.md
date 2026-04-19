@@ -1078,6 +1078,29 @@ Taste journal signals with `user_relevance: user` in `latest_ingestion_signals.j
 
 Discovered 2026-04-19.
 
+### Taste journal entities lack confidence fields
+
+Taste journal `entities_observed` entries (in `decision.entities_observed`) contain `name`, `type`, and `user_relevance` fields but **do not include a `confidence` field**. When the ingestion script creates candidates from these entities, confidence defaults to `low` because no value is provided.
+
+**Example Taste entity**:
+```json
+{
+  "type": "Place",
+  "name": "A16 - San Francisco",
+  "user_relevance": "user"
+}
+```
+
+No `confidence` field present. Contrast with Scout/Sift entities which include `confidence: "high"`.
+
+**Impact**: Taste-sourced candidates are never promoted during immediate consolidation because they lack `high` or `medium` confidence. They remain in the pending queue indefinitely unless manually promoted or the confidence is set during deep consolidation.
+
+**Workaround**: For user-relevant Taste entities that are clearly correct (venues from calendar events, restaurants from emails), manually promote via `elephas.candidates.promote` or run deep consolidation which may apply different confidence scoring.
+
+**Root cause**: The Taste skill's journal format doesn't emit confidence for extracted entities. Consider updating the Taste skill to include confidence scores based on extraction certainty.
+
+Discovered 2026-04-19 during ingestion+consolidation run.
+
 ### Cypher CREATE closing paren bug (critical)
 
 When writing `CREATE` statements with f-strings, the `}}` escape produces a single `}` but the Cypher statement also needs a closing `)` for the node pattern. Missing `)` causes:
