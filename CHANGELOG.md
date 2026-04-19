@@ -25,6 +25,14 @@
 
 # Changelog
 
+## [3.2.5] - 2026-04-18
+
+### Documentation
+- Rewrote `references/ladybugdb_operational.md` (architectural refactor)
+- Added Node Type Property Names section to `references/schemas.md` documenting `entity_type`, `place_type`, `concept_type`, `thing_type` discriminator fields
+- Updated `references/ingestion_pipeline.md` with journal field location variance notes and session file format details
+- Added LadybugDB API notes to `references/init_pattern.md`
+
 ## [3.2.1] - 2026-04-08
 
 ### Storage Architecture Update
