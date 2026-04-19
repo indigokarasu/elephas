@@ -12,7 +12,7 @@ description: >
 metadata:
   author: Indigo Karasu
   email: mx.indigo.karasu@gmail.com
-  version: "3.2.6"
+  version: "3.2.7"
   hermes:
     tags: [knowledge-graph, ingestion, entities]
     category: memory
@@ -986,6 +986,69 @@ if isinstance(decision, dict):
     if isinstance(payload, dict):
         nested = payload.get("entities_observed", [])
 ```
+
+Discovered 2026-04-19.
+
+### Promotion counter bug (elephas_ingest_consolidate.py)
+
+The `elephas_ingest_consolidate.py` script's promotion counter is inaccurate. It reports "Promoted: 0" even when candidates are successfully promoted. The actual promotion logic works correctly (candidates do get promoted to Chronicle), but the counter variable is not being incremented properly.
+
+**Symptoms**: Script output shows "Promoted: 0" but `Candidate.status = 'promoted'` entries exist in the database.
+
+**Workaround**: Trust the database state over the script counter. Query for promoted candidates directly:
+```python
+result = conn.execute("""
+    MATCH (c:Candidate {status: 'promoted'})
+    WHERE c.resolved_at STARTS WITH '{today}'
+    RETURN count(c)
+""")
+```
+
+**Root cause**: The `run_consolidation()` function returns a counter that may not capture all promotion paths. Investigate the counter increment logic in the promotion flow.
+
+Discovered 2026-04-19.
+
+### Stale ingestion log cleanup (pre-run requirement)
+
+Before running ingestion, always clean stale entries from `ingestion_log.jsonl`. Failed/interrupted runs write entries with `signals_created: 0`, causing subsequent runs to skip those files.
+
+**Cleanup pattern**:
+```python
+from datetime import datetime, timezone
+
+INGESTION_LOG = Path("/root/.hermes/commons/db/ocas-elephas/ingestion_log.jsonl")
+lines = INGESTION_LOG.read_text().strip().split('\n')
+kept = []
+for line in lines:
+    if not line.strip():
+        continue
+    entry = json.loads(line)
+    if entry.get("signals_created", 0) == 0:
+        ingested_at = entry.get("ingested_at", "")
+        if "T" in ingested_at:
+            ingested_time = datetime.fromisoformat(ingested_at.replace('Z', '+00:00'))
+            age_hours = (datetime.now(timezone.utc) - ingested_time).total_seconds() / 3600
+            if age_hours > 1:  # Older than 1 hour = likely stale
+                continue
+    kept.append(line)
+INGESTION_LOG.write_text('\n'.join(kept) + '\n')
+```
+
+In a 2026-04-19 run, this cleaned 2,320 stale entries out of 3,196 total.
+
+Discovered 2026-04-19.
+
+### Agent-only classification for Taste signals
+
+Taste journal signals with `user_relevance: user` in `latest_ingestion_signals.json` may still be classified as `agent_only` during ingestion. This happens because:
+
+1. The `latest_ingestion_signals.json` format differs from what the ingestion script expects
+2. The script uses different field names (`signal_id` vs `id`, `name` at top level vs nested in `payload`)
+3. The user_relevance classification logic may not properly handle the Taste signal format
+
+**Investigation needed**: Check the `_extract_relevance()` function in the ingestion script to ensure it correctly reads `user_relevance` from Taste signals.
+
+**Workaround**: After ingestion, manually review agent_only candidates from Taste and promote user-relevant ones via `elephas.candidates.promote`.
 
 Discovered 2026-04-19.
 
