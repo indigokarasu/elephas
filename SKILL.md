@@ -12,7 +12,7 @@ description: >
 metadata:
   author: Indigo Karasu
   email: mx.indigo.karasu@gmail.com
-  version: "3.2.5"
+  version: "3.2.6"
   hermes:
     tags: [knowledge-graph, ingestion, entities]
     category: memory
@@ -797,6 +797,165 @@ if isinstance(top_entities, list):
 ```
 
 This applies to both top-level and nested `decision.payload.entities_observed` fields. Discovered 2026-04-19.
+
+### proposed_type compound labels (critical)
+
+The `Candidate.proposed_type` field stores compound labels like `"Entity/Place"` or `"Concept/Event"` — not bare node type names. When using `proposed_type` as a Cypher node label in `CREATE (e:{node_type} ...)`, LadybugDB fails with:
+
+```
+Parser exception: Invalid input <CREATE (e:Entity/>: expected rule oC_SingleQuery
+```
+
+**Wrong** (using proposed_type directly as label):
+```python
+node_type = candidate.proposed_type  # "Entity/Place"
+conn.execute(f"CREATE (e:{node_type} {{...}})")  # Parser error
+```
+
+**Correct** — split on "/" and use only the first segment as the node label:
+```python
+if "/" in proposed_type:
+    node_type = proposed_type.split("/")[0]      # "Entity"
+    subtype = proposed_type.split("/")[-1]        # "Place"
+else:
+    node_type = proposed_type
+    subtype = pdata.get("type", "Unknown")
+
+# Validate against known types
+if node_type not in ("Entity", "Place", "Concept", "Thing"):
+    node_type = "Entity"
+```
+
+Discovered 2026-04-19 during immediate consolidation when promoting Taste/Custodian candidates.
+
+### Node type-specific CREATE properties (critical)
+
+Each Chronicle node type has **different required properties**. Using Entity's property set for all types causes `Binder exception: Cannot find property {prop} for {var}`.
+
+**Property sets by node type:**
+
+| Node Type | Required Properties |
+|---|---|
+| Entity | id, name, entity_type, aliases, identifiers, possible_matches, merge_history, identity_state, source_skill, record_time |
+| Place | id, name, place_type, coordinates, address, source_skill, record_time |
+| Concept | id, name, description, concept_type, event_time, source_skill, record_time |
+| Thing | id, name, thing_type, metadata, source_skill, record_time |
+
+**Wrong** (using Entity properties for Concept):
+```python
+conn.execute(f"""CREATE (e:{node_type} {{
+    id: '{ent_id}', name: '{name}', entity_type: '{subtype}',
+    aliases: '[]', identifiers: '{{}}', ...  # ERROR: Concept has no 'aliases'
+}})""")
+```
+
+**Correct** — use a type-aware factory function:
+```python
+def create_node(conn, node_type, name, subtype, source_skill="elephas-consolidate"):
+    ent_id = _gen_id(node_type[:3].lower())
+    ts = _ts()
+    if node_type == "Entity":
+        conn.execute(f"""CREATE (e:Entity {{
+            id: '{_esc(ent_id)}', name: '{_esc(name)}', entity_type: '{_esc(subtype)}',
+            aliases: '[]', identifiers: '{{}}', possible_matches: '[]', merge_history: '[]',
+            identity_state: 'distinct', source_skill: '{_esc(source_skill)}', record_time: '{ts}'
+        }})""")
+    elif node_type == "Place":
+        conn.execute(f"""CREATE (e:Place {{
+            id: '{_esc(ent_id)}', name: '{_esc(name)}', place_type: '{_esc(subtype)}',
+            coordinates: '', address: '', source_skill: '{_esc(source_skill)}', record_time: '{ts}'
+        }})""")
+    elif node_type == "Concept":
+        conn.execute(f"""CREATE (e:Concept {{
+            id: '{_esc(ent_id)}', name: '{_esc(name)}', description: '', concept_type: '{_esc(subtype)}',
+            event_time: '', source_skill: '{_esc(source_skill)}', record_time: '{ts}'
+        }})""")
+    elif node_type == "Thing":
+        conn.execute(f"""CREATE (e:Thing {{
+            id: '{_esc(ent_id)}', name: '{_esc(name)}', thing_type: '{_esc(subtype)}',
+            metadata: '{{}}', source_skill: '{_esc(source_skill)}', record_time: '{ts}'
+        }})""")
+    return ent_id
+```
+
+Discovered 2026-04-19 when promoting 15 Concept and 1 Place candidates failed with missing property errors.
+
+### Mixed confidence formats in Candidates
+
+The `Candidate.confidence` field stores confidence in two formats:
+- **Text**: `"high"`, `"medium"`, `"low"` — from Scout/Sift/Custodian signals
+- **Numeric string**: `"0.3"`, `"0.6"` — from Taste/other signals with float confidence
+
+When filtering promotable candidates, handle both formats:
+
+```python
+def is_promotable(conf_str):
+    if conf_str in ("high",): return True
+    if conf_str == "medium": return True  # Medium = promotable
+    try:
+        return float(conf_str) >= 0.6
+    except:
+        return False
+```
+
+**Wrong** (only checking text labels):
+```python
+# Misses all numeric-confidence candidates
+r = conn.execute("MATCH (c:Candidate {status: 'pending', confidence: 'high'}) RETURN c")
+```
+
+**Correct** — query all pending then filter in Python:
+```python
+r = conn.execute("MATCH (c:Candidate {status: 'pending', user_relevance: 'user'}) RETURN c.id, c.confidence")
+for row in r:
+    if is_promotable(row[1]):
+        # promote
+```
+
+Discovered 2026-04-19 when 132 user-relevant candidates with `confidence: "0.6"` were not being promoted.
+
+### entities_observed strings (non-dict entities)
+
+Some journal files store `entities_observed` as a list of **strings** rather than dicts (e.g., simple entity names from Taste or expansion journals). The `_extract_name()` function must handle both:
+
+```python
+def _extract_name(e):
+    if isinstance(e, str): return e  # String entity
+    if e.get("name"): return e["name"]
+    # ... rest of dict handling
+```
+
+Similarly, `_extract_type()`, `_get_user_relevance()`, and confidence extraction must handle string entities gracefully:
+
+```python
+def _extract_type(e):
+    if isinstance(e, str): return "Entity"  # Default for strings
+    # ... dict handling
+
+def _get_ur(e):
+    if isinstance(e, str): return "unknown"  # Default for strings
+    # ... dict handling
+```
+
+Discovered 2026-04-19 when processing Taste cal-scan journals with string entities.
+
+### decision field can be a string
+
+Some journal files store `decision` as a string rather than a dict. Always guard nested access:
+
+```python
+# Wrong - crashes if decision is a string
+nested = data.get("decision", {}).get("payload", {}).get("entities_observed", [])
+
+# Correct
+decision = data.get("decision", {})
+if isinstance(decision, dict):
+    payload = decision.get("payload", {})
+    if isinstance(payload, dict):
+        nested = payload.get("entities_observed", [])
+```
+
+Discovered 2026-04-19.
 
 ## Visibility
 
