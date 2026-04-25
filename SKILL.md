@@ -18,7 +18,7 @@ metadata:
     category: memory
     cron:
       - name: "elephas:update"
-        schedule: "0 0 * * *"
+        schedule: "5 7 * * *"
         command: "elephas.update"
   openclaw:
     skill_type: system
@@ -43,7 +43,7 @@ metadata:
       requires_binaries: [gh, tar, python3]
     cron:
       - name: "elephas:update"
-        schedule: "0 0 * * *"
+        schedule: "5 7 * * *"
         command: "elephas.update"
 ---
 
@@ -626,11 +626,15 @@ Field conventions by source:
 - **Mentor**: uses `entity_type` (like `Entity/AI`) and `entity_id` (namespaced like `ocas-dispatch`)
 - **Scout/Sift**: uses `name` and `type`
 
-**entities_observed field location**: Journal skills vary in where they emit `entities_observed`. Always check **both**:
-1. Top-level: `j.get("entities_observed", [])`
-2. Nested: `j.get("decision", {}).get("payload", {}).get("entities_observed", [])`
+**entities_observed field location**: Journal skills vary in where they emit `entities_observed`. Always check **all four** locations:
+1. Top-level: `data.get("entities_observed", [])` — most skills (Taste, Weave, Scout, Sift)
+2. Directly under decision: `data.get("decision", {}).get("entities_observed", [])` — Bower, some Weave journals
+3. Nested in decision.payload: `data.get("decision", {}).get("payload", {}).get("entities_observed", [])` — some skills
+4. Directly under payload: `data.get("payload", {}).get("entities_observed", [])` — Custodian, Expansion use this
 
-Many skills (Taste, Custodian) use top-level only. Scout uses top-level. Different skills have different conventions.
+Missing any location causes journal files to be silently skipped during ingestion. The 4-location check is implemented in `elephas_pipeline.py` `extract_entities()` function. Confirmed 2026-04-21.
+
+Many skills use different conventions: Taste and Scout use top-level only; Bower uses `decision.entities_observed`; Custodian uses `payload.entities_observed`. Always check all four locations.
 
 **Deduplication**: The `CONTAINS $nm` query on `proposed_data` fails if the payload is malformed repr. Always parse the payload first, extract the name, then use it for deduplication. Never let a malformed payload cause silent signal loss.
 
@@ -814,7 +818,14 @@ The `immediate_consolidate.py` shipped script uses the wrong API. Always write i
 
 ### entities_observed field type variation (critical)
 
-The `entities_observed` field in journal entries can be either:
+The `entities_observed` field can be found in THREE locations within journal files:
+1. **Top-level**: `data.get("entities_observed", [])` — most skills (Taste, Weave, Scout, Sift)
+2. **Nested in decision.payload**: `data.get("decision", {}).get("payload", {}).get("entities_observed", [])` — some skills
+3. **Directly under payload**: `data.get("payload", {}).get("entities_observed", [])` — Custodian, Expansion, and other skills
+
+Always check ALL THREE locations. Missing the `payload` direct path causes ~300+ journal files to be silently skipped.
+
+The field can be either:
 - **List of dicts** — skill journals from Scout, Weave, Sift, etc. containing actual entity observations
 - **Integer (0)** — Elephas' own consolidation journal files reporting `entities_observed: 0` as a count
 
@@ -1014,34 +1025,135 @@ Discovered 2026-04-19.
 
 ### Ingestion log key inconsistency (critical)
 
-The `ingestion_log.jsonl` file uses **three different keys** for the journal file path:
+The `ingestion_log.jsonl` file uses **five different keys** for the journal file path, varying by which script created the entry:
 - `"file"` — used by most ingestion entries (Scout, Sift, Custodian, Bower, etc.)
 - `"journal_file"` — used by Elephas' own consolidation journal entries
-- `"journal_path"` — used by older ingestion runs and some Custodian entries
+- `"journal_path"` — used by older ingestion runs and some Custodian entries (~334 entries in a 2026-04-21 sample)
+- `"file_path"` — used by another ingestion script variant (~303 entries)
+- `"source_file"` — used by yet another variant (~149 entries)
 
-When loading the ingestion log to track processed files, always check all three keys:
+When loading the ingestion log to track processed files, **always check all five keys**:
 
-**Wrong** (crashes on Elephas consolidation entries):
+**Wrong** (misses ~750+ entries):
 ```python
 for line in ingestion_log:
     entry = json.loads(line)
-    processed_files[entry["file"]] = entry  # KeyError if key is "journal_file"
+    file_key = entry.get("file") or entry.get("journal_file") or entry.get("journal_path")
+    # Missing file_path and source_file — 450+ entries invisible!
 ```
 
 **Correct**:
 ```python
 for line in ingestion_log:
     entry = json.loads(line)
-    file_key = entry.get("file") or entry.get("journal_file") or entry.get("journal_path")
+    file_key = (entry.get("file") or entry.get("journal_file") or
+                entry.get("journal_path") or entry.get("file_path") or
+                entry.get("source_file", ""))
     if file_key:
         processed_files[file_key] = entry
 ```
 
-**Impact of missing `journal_path`**: In a 2026-04-19 run, 510 entries used the `journal_path` key. Because the pipeline only checked `file` and `journal_file`, all those files were treated as unprocessed and re-ingested. Files that previously created signals (signals_created > 0) were logged again with signals_created: 0 (no entities found on second pass), creating confusing duplicate entries.
+**Critical: path normalization**. The log stores paths in mixed formats — some absolute (`/root/.hermes/commons/journals/ocas-custodian/2026-04-10/c0de6ffe.json`), some relative (`ocas-custodian/2026-04-10/c0de6ffe.json`). When `find_unprocessed()` generates absolute paths, they won't match relative log entries. Always add both forms to the processed set:
 
-**Empty file path entries**: If the ingestion log contains entries with empty `"file": ""` values, these are from older ingestion formats that used a different key. Don't let empty-path entries cause crashes — always check `if file_key:` before adding to the processed set.
+```python
+processed = set()
+for line in ingestion_log:
+    entry = json.loads(line)
+    f = (entry.get("file") or entry.get("journal_file") or
+         entry.get("journal_path") or entry.get("file_path") or
+         entry.get("source_file", ""))
+    if f:
+        processed.add(f)
+        # Add alternate form for matching
+        if f.startswith('/'):
+            try:
+                processed.add(str(Path(f).relative_to(JOURNALS_ROOT)))
+            except ValueError:
+                pass
+        else:
+            processed.add(str(JOURNALS_ROOT / f))
+```
 
-Discovered 2026-04-19 during ingest+consolidation run. Updated 2026-04-19 after discovering `journal_path` variant.
+**Impact**: In a 2026-04-21 run, checking only 3 of 5 keys caused `load_processed()` to find 442 entries from 1144 actual entries (~700 entries invisible). This made the pipeline report 699 "unprocessed" files that were already ingested, re-processing them all with `signals_created: 0` and polluting the log. After adding all 5 key checks + path normalization, the pipeline correctly identified 916 of 918 journal files as already processed.
+
+**Key distribution** (2026-04-21 sample of 1144 signal-creating entries):
+- `file`: 358 entries
+- `journal_path`: 334 entries
+- `file_path`: 303 entries
+- `source_file`: 149 entries
+- `journal_file`: 0 entries (rare)
+
+Discovered 2026-04-19. Updated 2026-04-21 with `file_path`, `source_file` variants and path normalization requirement.
+
+### find_unprocessed 3-level depth bug (critical)
+
+The `find_unprocessed()` function in `elephas_pipeline.py` iterated only 2 levels:
+```python
+# Wrong - treats skill dirs as date dirs
+for date_dir in JOURNALS_ROOT.iterdir():
+    for f in date_dir.iterdir():
+        if f.suffix == '.json': ...
+```
+
+But journals are 3 levels: `skill_dir/date_dir/file.json`. The 2-level loop found date directories (like `2026-04-12/`) which don't have `.json` suffix, so nothing matched.
+
+**Fix** — iterate skill_dir then date_dir:
+```python
+for skill_dir in sorted(JOURNALS_ROOT.iterdir()):
+    if not skill_dir.is_dir() or skill_dir.name.startswith('.'):
+        continue
+    for date_dir in sorted(skill_dir.iterdir()):
+        if not date_dir.is_dir():
+            continue
+        for f in sorted(date_dir.glob("*.json")):
+            abs_path = str(f)
+            rel_path = str(f.relative_to(JOURNALS_ROOT))
+            if abs_path not in processed and rel_path not in processed:
+                unprocessed.append(abs_path)
+```
+
+**Impact**: Before fix, pipeline reported 0 unprocessed files despite 677+ files not yet processed. After fix, correctly identified and processed all backlog. Discovered 2026-04-20.
+
+### Ingestion log path format mismatch (critical)
+
+The `ingestion_log.jsonl` file stores file paths in **relative** format (e.g., `ocas-taste/2026-04-17/r.json`), but `find_unprocessed()` generates **absolute** paths (e.g., `/root/.hermes/commons/journals/ocas-taste/2026-04-17/r.json`). The comparison `str(f) not in processed` always fails because no absolute path matches any relative path in the processed set.
+
+**Symptoms**: Pipeline reports hundreds of "unprocessed" files that are actually already ingested. Each run re-processes everything, logging `signals_created: 0` duplicates.
+
+**Wrong** (absolute path never matches relative log entry):
+```python
+# ingestion_log has: "file": "ocas-taste/2026-04-17/r.json"
+# find_unprocessed generates: "/root/.hermes/commons/journals/ocas-taste/2026-04-17/r.json"
+if str(f) not in processed:  # Always True — never matches
+    results.append(str(f))
+```
+
+**Correct** — check both absolute and relative forms:
+```python
+for f in sorted(date_dir.iterdir()):
+    if f.suffix == '.json':
+        abs_path = str(f)
+        rel_path = str(f.relative_to(JOURNALS_ROOT))
+        if abs_path not in processed and rel_path not in processed:
+            results.append(abs_path)
+```
+
+Also add missing key variants and path normalization to `load_processed()`:
+```python
+f = (entry.get("file") or entry.get("journal_file") or entry.get("journal_path")
+     or entry.get("file_path") or entry.get("source_file", ""))
+if f:
+    processed.add(f)
+    if f.startswith('/'):
+        try: processed.add(str(Path(f).relative_to(JOURNALS_ROOT)))
+        except: pass
+    else:
+        processed.add(str(JOURNALS_ROOT / f))
+```
+
+In a 2026-04-20 run, this bug caused the pipeline to report 593 "unprocessed" files (all already ingested) and 0 signals created. After the fix, it correctly identified 956 processed files and 0 unprocessed.
+
+Discovered 2026-04-20 during cron ingest+consolidate run.
 
 ### Stale ingestion log cleanup (pre-run requirement)
 
@@ -1240,9 +1352,9 @@ Discovered 2026-04-19 during ingest+consolidation run when attempting incrementa
 For reliable ingest+consolidate runs, use a self-contained Python script at `{agent_root}/commons/db/ocas-elephas/elephas_pipeline.py` rather than calling individual commands. The script should:
 
 1. Clean stale ingestion log entries (entries with `signals_created: 0` older than 15 min)
-2. Load processed files checking **all three** log key variants (`file`, `journal_file`, `journal_path`)
+2. Load processed files checking **all five** log key variants (`file`, `journal_file`, `journal_path`, `file_path`, `source_file`) with both absolute and relative path forms
 3. Scan journal directories for unprocessed `.json` files
-4. Extract `entities_observed` from both top-level and `decision.payload` paths
+4. Extract `entities_observed` from all four locations (top-level, `decision`, `decision.payload`, `payload`)
 5. Handle all entity type variants (strings, ints, dicts, repr-format payloads)
 6. Create Signal → Candidate chains with proper `Supports` edges
 7. Run immediate consolidation with `is_promotable()` confidence checking
