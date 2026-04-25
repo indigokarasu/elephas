@@ -398,7 +398,12 @@ def _propose_candidates(conn):
         if match:
             cand_id, existing_signals, existing_rel = match[0]
             # Update existing candidate
-            signals_list = json.loads(existing_signals or "[]")
+            signals_list = []
+            if existing_signals:
+                try:
+                    signals_list = json.loads(existing_signals)
+                except json.JSONDecodeError:
+                    pass
             if sig_id not in signals_list:
                 signals_list.append(sig_id)
                 conn.execute("""
