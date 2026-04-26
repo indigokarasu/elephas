@@ -18,7 +18,7 @@ metadata:
     category: memory
     cron:
       - name: "elephas:update"
-        schedule: "0 0 * * *"
+        schedule: "5 7 * * *"
         command: "elephas.update"
   openclaw:
     skill_type: system
@@ -43,7 +43,7 @@ metadata:
       requires_binaries: [gh, tar, python3]
     cron:
       - name: "elephas:update"
-        schedule: "0 0 * * *"
+        schedule: "5 7 * * *"
         command: "elephas.update"
 ---
 
@@ -602,31 +602,39 @@ def parse_repr_payload(text):
 
 **Remediation**: On any parse failure, attempt `parse_repr_payload()` before skipping the signal. Fix stored payloads by re-serializing with `json.dumps(parsed)`.
 
-**Name extraction**: Custodian journals use `entity` as type identifier (`Entity/Gateway`) and `description` as the display name. Use:
+**Name extraction**: Custodian and Mentor journals use different field conventions for entity identifiers. Use this robust version that handles all variants:
 ```python
 def _extract_name(e):
-    if e.get("name"): return e["name"]
-    if e.get("description"): return e["description"]
-    ev = e.get("entity","")
-    if ev and "/" in ev: return ev.split("/")[-1]
-    return ev
+    if isinstance(e, str): return e
+    if isinstance(e, (int, float)): return str(e)
+    for field in ["name", "description", "entity_id", "entity"]:
+        val = e.get(field, "")
+        if val and str(val).strip() and str(val) != "0":
+            sval = str(val)
+            # entity_id may have namespace prefix like "weave:sync-contacts"
+            if field == "entity_id" and ":" in sval:
+                return sval.split(":", 1)[-1]
+            # entity may have type path like "Entity/Gateway"
+            if field == "entity" and "/" in sval:
+                return sval.split("/")[-1]
+            return sval
+    return ""
 ```
 
-**Name extraction**: Custodian journals use `entity` as type identifier (`Entity/Gateway`) and `description` as the display name. Use:
-```python
-def _extract_name(e):
-    if e.get("name"): return e["name"]
-    if e.get("description"): return e["description"]
-    ev = e.get("entity","")
-    if ev and "/" in ev: return ev.split("/")[-1]
-    return ev
-```
+Field conventions by source:
+- **Custodian**: uses `entity` (type path like `Entity/Gateway`) and `description` (display name)
+- **Mentor**: uses `entity_type` (like `Entity/AI`) and `entity_id` (namespaced like `ocas-dispatch`)
+- **Scout/Sift**: uses `name` and `type`
 
-**entities_observed field location**: Journal skills vary in where they emit `entities_observed`. Always check **both**:
-1. Top-level: `j.get("entities_observed", [])`
-2. Nested: `j.get("decision", {}).get("payload", {}).get("entities_observed", [])`
+**entities_observed field location**: Journal skills vary in where they emit `entities_observed`. Always check **all four** locations:
+1. Top-level: `data.get("entities_observed", [])` — most skills (Taste, Weave, Scout, Sift)
+2. Directly under decision: `data.get("decision", {}).get("entities_observed", [])` — Bower, some Weave journals
+3. Nested in decision.payload: `data.get("decision", {}).get("payload", {}).get("entities_observed", [])` — some skills
+4. Directly under payload: `data.get("payload", {}).get("entities_observed", [])` — Custodian, Expansion use this
 
-Many skills (Taste, Custodian) use top-level only. Scout uses top-level. Different skills have different conventions.
+Missing any location causes journal files to be silently skipped during ingestion. The 4-location check is implemented in `elephas_pipeline.py` `extract_entities()` function. Confirmed 2026-04-21.
+
+Many skills use different conventions: Taste and Scout use top-level only; Bower uses `decision.entities_observed`; Custodian uses `payload.entities_observed`. Always check all four locations.
 
 **Deduplication**: The `CONTAINS $nm` query on `proposed_data` fails if the payload is malformed repr. Always parse the payload first, extract the name, then use it for deduplication. Never let a malformed payload cause silent signal loss.
 
@@ -636,6 +644,66 @@ MATCH (s:Signal {status: 'active'})
 WHERE NOT EXISTS { MATCH (s)-[:Supports]->() }
 RETURN s.id, s.payload, s.user_relevance
 ```
+
+### Weave enrichment orphan signals (post-run resolution)
+
+The `run_weave_enrichment_ingest()` phase creates Signal → Candidate chains inside a broad `try/except` that catches all exceptions. If `create_candidate()` fails after `create_signal()` succeeds, the signal remains `active` with no `Supports` edge. The pipeline's `clean_orphan_signals()` only marks these as `orphaned` — it does **not** create the missing candidate or promote.
+
+**Detection**: After every pipeline run, verify zero orphan signals:
+```cypher
+MATCH (s:Signal {status: 'active'})
+WHERE NOT EXISTS { MATCH (s)-[:Supports]->() }
+RETURN count(s) AS orphan_signals
+```
+
+**Resolution** — iterate orphan signals, parse payload, create candidate, link via Supports, and promote:
+```python
+for sid, payload_str, relevance, skill in orphans:
+    p = json.loads(payload_str)  # or parse_repr_payload() fallback
+    name = p.get("name", "")
+    if not name: continue
+    conf_val = str(p.get("confidence", "0.8"))
+    etype = p.get("type", "Person")
+
+    # Create candidate
+    cand_id = _gen_id("cand")
+    proposed_data = json.dumps({"name": name, "type": etype})
+    conn.execute(f"""CREATE (c:Candidate {{
+        id: '{_esc(cand_id)}', proposed_type: 'Entity/Person',
+        proposed_data: '{_esc(proposed_data)}',
+        supporting_signals: '{_esc(json.dumps([sid]))}',
+        confidence: '{_esc(conf_val)}', user_relevance: 'user',
+        status: 'pending', created_at: '{_ts()}',
+        resolved_at: '', resolved_reason: ''
+    }})""")
+    conn.execute(f"""MATCH (s:Signal {{id: '{_esc(sid)}'}})
+        MATCH (c:Candidate {{id: '{_esc(cand_id)}'}})
+        CREATE (s)-[:Supports]->(c)""")
+
+    # Check if entity exists, then promote
+    existing = conn.execute(f"MATCH (e:Entity {{name: '{_esc(name)}'}}) RETURN e.id LIMIT 1")
+    if [x for x in existing]:
+        conn.execute(f"""MATCH (c:Candidate {{id: '{_esc(cand_id)}'}})
+            SET c.status = 'promoted', c.resolved_at = '{_ts()}',
+                c.resolved_reason = 'duplicate_of_existing'""")
+    else:
+        ent_id = _gen_id("ent")
+        conn.execute(f"""CREATE (e:Entity {{id: '{_esc(ent_id)}',
+            name: '{_esc(name)}', entity_type: 'Person',
+            aliases: '[]', identifiers: '{{}}', possible_matches: '[]',
+            merge_history: '[]', identity_state: 'distinct',
+            source_skill: 'elephas-consolidate', record_time: '{_ts()}'}})""")
+        conn.execute(f"""MATCH (c:Candidate {{id: '{_esc(cand_id)}'}})
+            MATCH (e:Entity {{id: '{_esc(ent_id)}'}})
+            CREATE (c)-[:Promotes]->(e)""")
+        conn.execute(f"""MATCH (c:Candidate {{id: '{_esc(cand_id)}'}})
+            SET c.status = 'promoted', c.resolved_at = '{_ts()}',
+                c.resolved_reason = 'promoted'""")
+```
+
+**Prevention**: The deeper fix is making `run_weave_enrichment_ingest()` transactional — create the candidate first, or wrap signal+candidate creation in a single LadybugDB tx, so partial failures don't leave orphan signals. The orphan resolution above is the current workaround.
+
+Discovered 2026-04-26 during cron ingest+consolidate run.
 
 ### Ingestion log staleness
 
@@ -808,9 +876,66 @@ conn = lb.Connection(db)  # Works — all connections are read-write capable
 
 The `immediate_consolidate.py` shipped script uses the wrong API. Always write inline scripts with the correct constructor. Discovered 2026-04-19.
 
+### Weave enrichment format gap (critical — pipeline patched 2026-04-25)
+
+Weave enrichment journals (`weave-enrichment-YYYYMMDD-HHMMSS.json`) store enriched contact data in a top-level `enriched` array — NOT in `entities_observed` in any of the 4 standard locations. This means every enrichment run produces user-relevant person entities that are invisible to the Chronicle ingestion pipeline.
+
+**Pipeline fix**: The `elephas_pipeline.py` script now includes a `run_weave_enrichment_ingest()` phase that runs after standard journal ingestion. It scans all `weave-enrichment-*.json` files, extracts the `enriched` array, and creates Signal → Candidate chains. When run as a cron job, the entry point invokes:
+
+```
+Phase 1a: run_ingest() — standard journals (entities_observed in 4 locations)
+Phase 1b: run_weave_enrichment_ingest() — Weave enrichment format gap
+Phase 2: run_consolidate() — promote high-confidence user-relevant candidates
+```
+
+**Format example** from `ocas-weave/2026-04-25/weave-enrichment-20260425-080035.json`:
+```json
+{
+  "run_id": "...", "skill": "ocas-weave", "command": "enrich",
+  "enriched": [
+    {"name": "Zahra Eslami", "email": "zeslami_77@yahoo.com",
+     "org": "City of Toronto", "occupation": "Senior PC...",
+     "confidence": 0.85, "source_type": "scout_research",
+     "verification_notes": "Identity verified: name + Toronto location match via OALA directory"},
+    ...
+  ],
+  "skipped_summary": {...}
+}
+```
+
+**Implementation** in `elephas_pipeline.py`:
+```python
+def extract_weave_enriched(data):
+    """Extract contacts from Weave enrichment 'enriched' field."""
+    enriched = data.get("enriched", [])
+    if not enriched or not isinstance(enriched, list):
+        return []
+    entities = []
+    for contact in enriched:
+        name = contact.get("name", "")
+        if not name: continue
+        entities.append({
+            "name": name, "type": "Person",
+            "user_relevance": "user",
+            "confidence": str(contact.get("confidence", 0.8))
+        })
+    return entities
+```
+
+The function `run_weave_enrichment_ingest()` scans all `weave-enrichment-*.json` files across all journal directories. It skips files already in the ingestion log (`processed` set) to avoid duplicates on re-runs. Contact confidence is converted to string format for Cypher compatibility.
+
+**Root cause**: The Weave enrichment script writes to the `enriched` field but never populates `entities_observed`. Update the enrichment output (or the pipeline) to bridge this gap. The Weave skill spec already states journals should include `entities_observed` in `decision.payload` — the enrichment output doesn't follow this convention. Pipeline patched 2026-04-25 as a workaround.
+
 ### entities_observed field type variation (critical)
 
-The `entities_observed` field in journal entries can be either:
+The `entities_observed` field can be found in THREE locations within journal files:
+1. **Top-level**: `data.get("entities_observed", [])` — most skills (Taste, Weave, Scout, Sift)
+2. **Nested in decision.payload**: `data.get("decision", {}).get("payload", {}).get("entities_observed", [])` — some skills
+3. **Directly under payload**: `data.get("payload", {}).get("entities_observed", [])` — Custodian, Expansion, and other skills
+
+Always check ALL THREE locations. Missing the `payload` direct path causes ~300+ journal files to be silently skipped.
+
+The field can be either:
 - **List of dicts** — skill journals from Scout, Weave, Sift, etc. containing actual entity observations
 - **Integer (0)** — Elephas' own consolidation journal files reporting `entities_observed: 0` as a count
 
@@ -989,67 +1114,200 @@ if isinstance(decision, dict):
 
 Discovered 2026-04-19.
 
-### Promotion counter bug (elephas_ingest_consolidate.py)
+### Promotion counter bug — pipeline reports success but doesn't persist (critical)
 
-The `elephas_ingest_consolidate.py` script's promotion counter is inaccurate. It reports "Promoted: 0" even when candidates are successfully promoted. The actual promotion logic works correctly (candidates do get promoted to Chronicle), but the counter variable is not being incremented properly.
+Two variants of this bug exist:
 
-**Symptoms**: Script output shows "Promoted: 0" but `Candidate.status = 'promoted'` entries exist in the database.
+**Variant A (elephas_ingest_consolidate.py):** Reports "Promoted: 0" even when candidates are successfully promoted. The actual Cypher writes work correctly, the counter variable just isn't incremented.
 
-**Workaround**: Trust the database state over the script counter. Query for promoted candidates directly:
+**Variant B (elephas_pipeline.py, current — discovered 2026-04-25):** Reports "Promoted: 1" but the Cypher SET for the `existing_entities` (duplicate) path does NOT persist to the database. The candidate remains `pending` with empty `resolved_at`. This specifically affects the block at line ~813-821:
+
 ```python
-result = conn.execute("""
-    MATCH (c:Candidate {status: 'promoted'})
-    WHERE c.resolved_at STARTS WITH '{today}'
-    RETURN count(c)
-""")
+if existing_entities:
+    conn.execute(f"""
+        MATCH (c:Candidate {{id: '{_esc(cand_id)}'}})
+        SET c.status = 'promoted', c.resolved_at = '{_ts()}', 
+            c.resolved_reason = 'duplicate_of_existing'
+    """)
+    promoted += 1  # Counter is incremented but SET may not persist
 ```
 
-**Root cause**: The `run_consolidation()` function returns a counter that may not capture all promotion paths. Investigate the counter increment logic in the promotion flow.
+Likely causes:
+- Unicode name comparison: candidate `proposed_data` stores escaped unicode (`\u00f8`), which `json.loads` correctly decodes to `ø`. But LadybugDB's string comparison in `WHERE e.name = '...'` may not match the stored UTF-8 bytes, causing the `existing_entities` check to miss the match, so the `if existing_entities:` block is never entered.
+- Multiple `Database` instances in the same process: `run_ingest()`, `run_consolidate()`, and the main entry point each call `open_db()` which creates a **new** `Database` object. This may cause write visibility issues.
 
-Discovered 2026-04-19.
+**Workaround**: After every pipeline run, verify there are no remaining pending user-relevant candidates:
+```cypher
+MATCH (c:Candidate {status: 'pending', user_relevance: 'user'}) RETURN c.id, c.proposed_data, c.confidence, c.created_at
+```
+If any exist, promote them manually:
+```cypher
+MATCH (c:Candidate {id: 'cand_xxx'})
+SET c.status = 'promoted', c.resolved_at = '...', c.resolved_reason = 'manual_fix'
+```
+Then create a Promotes edge to the existing Entity (found by name).
+
+**Long-term fix**: Use a single `Database` instance across all pipeline phases (pass it as a parameter), and add explicit error checking after SET operations.
+
+Discovered 2026-04-19 (Variant A). Variant B discovered 2026-04-25 during cron ingest+consolidate run.
 
 ### Ingestion log key inconsistency (critical)
 
-The `ingestion_log.jsonl` file uses **two different keys** for the journal file path:
+The `ingestion_log.jsonl` file uses **five different keys** for the journal file path, varying by which script created the entry:
 - `"file"` — used by most ingestion entries (Scout, Sift, Custodian, Bower, etc.)
 - `"journal_file"` — used by Elephas' own consolidation journal entries
+- `"journal_path"` — used by older ingestion runs and some Custodian entries (~334 entries in a 2026-04-21 sample)
+- `"file_path"` — used by another ingestion script variant (~303 entries)
+- `"source_file"` — used by yet another variant (~149 entries)
 
-When loading the ingestion log to track processed files, always check both keys:
+When loading the ingestion log to track processed files, **always check all five keys**:
 
-**Wrong** (crashes on Elephas consolidation entries):
+**Wrong** (misses ~750+ entries):
 ```python
 for line in ingestion_log:
     entry = json.loads(line)
-    processed_files[entry["file"]] = entry  # KeyError if key is "journal_file"
+    file_key = entry.get("file") or entry.get("journal_file") or entry.get("journal_path")
+    # Missing file_path and source_file — 450+ entries invisible!
 ```
 
 **Correct**:
 ```python
 for line in ingestion_log:
     entry = json.loads(line)
-    file_key = entry.get("file") or entry.get("journal_file")
+    file_key = (entry.get("file") or entry.get("journal_file") or
+                entry.get("journal_path") or entry.get("file_path") or
+                entry.get("source_file", ""))
     if file_key:
         processed_files[file_key] = entry
 ```
 
-Discovered 2026-04-19 during ingest+consolidation run.
+**Critical: path normalization**. The log stores paths in mixed formats — some absolute (`/root/.hermes/commons/journals/ocas-custodian/2026-04-10/c0de6ffe.json`), some relative (`ocas-custodian/2026-04-10/c0de6ffe.json`). When `find_unprocessed()` generates absolute paths, they won't match relative log entries. Always add both forms to the processed set:
 
-### Stale ingestion log cleanup (pre-run requirement)
+```python
+processed = set()
+for line in ingestion_log:
+    entry = json.loads(line)
+    f = (entry.get("file") or entry.get("journal_file") or
+         entry.get("journal_path") or entry.get("file_path") or
+         entry.get("source_file", ""))
+    if f:
+        processed.add(f)
+        # Add alternate form for matching
+        if f.startswith('/'):
+            try:
+                processed.add(str(Path(f).relative_to(JOURNALS_ROOT)))
+            except ValueError:
+                pass
+        else:
+            processed.add(str(JOURNALS_ROOT / f))
+```
+
+**Impact**: In a 2026-04-21 run, checking only 3 of 5 keys caused `load_processed()` to find 442 entries from 1144 actual entries (~700 entries invisible). This made the pipeline report 699 "unprocessed" files that were already ingested, re-processing them all with `signals_created: 0` and polluting the log. After adding all 5 key checks + path normalization, the pipeline correctly identified 916 of 918 journal files as already processed.
+
+**Key distribution** (2026-04-21 sample of 1144 signal-creating entries):
+- `file`: 358 entries
+- `journal_path`: 334 entries
+- `file_path`: 303 entries
+- `source_file`: 149 entries
+- `journal_file`: 0 entries (rare)
+
+Discovered 2026-04-19. Updated 2026-04-21 with `file_path`, `source_file` variants and path normalization requirement.
+
+### find_unprocessed 3-level depth bug (critical)
+
+The `find_unprocessed()` function in `elephas_pipeline.py` iterated only 2 levels:
+```python
+# Wrong - treats skill dirs as date dirs
+for date_dir in JOURNALS_ROOT.iterdir():
+    for f in date_dir.iterdir():
+        if f.suffix == '.json': ...
+```
+
+But journals are 3 levels: `skill_dir/date_dir/file.json`. The 2-level loop found date directories (like `2026-04-12/`) which don't have `.json` suffix, so nothing matched.
+
+**Fix** — iterate skill_dir then date_dir:
+```python
+for skill_dir in sorted(JOURNALS_ROOT.iterdir()):
+    if not skill_dir.is_dir() or skill_dir.name.startswith('.'):
+        continue
+    for date_dir in sorted(skill_dir.iterdir()):
+        if not date_dir.is_dir():
+            continue
+        for f in sorted(date_dir.glob("*.json")):
+            abs_path = str(f)
+            rel_path = str(f.relative_to(JOURNALS_ROOT))
+            if abs_path not in processed and rel_path not in processed:
+                unprocessed.append(abs_path)
+```
+
+**Impact**: Before fix, pipeline reported 0 unprocessed files despite 677+ files not yet processed. After fix, correctly identified and processed all backlog. Discovered 2026-04-20.
+
+### Ingestion log path format mismatch (critical)
+
+The `ingestion_log.jsonl` file stores file paths in **relative** format (e.g., `ocas-taste/2026-04-17/r.json`), but `find_unprocessed()` generates **absolute** paths (e.g., `/root/.hermes/commons/journals/ocas-taste/2026-04-17/r.json`). The comparison `str(f) not in processed` always fails because no absolute path matches any relative path in the processed set.
+
+**Symptoms**: Pipeline reports hundreds of "unprocessed" files that are actually already ingested. Each run re-processes everything, logging `signals_created: 0` duplicates.
+
+**Wrong** (absolute path never matches relative log entry):
+```python
+# ingestion_log has: "file": "ocas-taste/2026-04-17/r.json"
+# find_unprocessed generates: "/root/.hermes/commons/journals/ocas-taste/2026-04-17/r.json"
+if str(f) not in processed:  # Always True — never matches
+    results.append(str(f))
+```
+
+**Correct** — check both absolute and relative forms:
+```python
+for f in sorted(date_dir.iterdir()):
+    if f.suffix == '.json':
+        abs_path = str(f)
+        rel_path = str(f.relative_to(JOURNALS_ROOT))
+        if abs_path not in processed and rel_path not in processed:
+            results.append(abs_path)
+```
+
+Also add missing key variants and path normalization to `load_processed()`:
+```python
+f = (entry.get("file") or entry.get("journal_file") or entry.get("journal_path")
+     or entry.get("file_path") or entry.get("source_file", ""))
+if f:
+    processed.add(f)
+    if f.startswith('/'):
+        try: processed.add(str(Path(f).relative_to(JOURNALS_ROOT)))
+        except: pass
+    else:
+        processed.add(str(JOURNALS_ROOT / f))
+```
+
+In a 2026-04-20 run, this bug caused the pipeline to report 593 "unprocessed" files (all already ingested) and 0 signals created. After the fix, it correctly identified 956 processed files and 0 unprocessed.
+
+Discovered 2026-04-20 during cron ingest+consolidate run.
+
+### Stale ingestion log cleanup (pre-run requirement) — WARNING: over-aggressive
 
 Before running ingestion, always clean stale entries from `ingestion_log.jsonl`. Failed/interrupted runs write entries with `signals_created: 0`, causing subsequent runs to skip those files.
 
-**Cleanup pattern**:
+**WARNING: Most journal files have no entities.** The majority of `signals_created: 0` entries are **legitimate** — the file was fully processed but contained no `entities_observed` in any of the 4 locations. Removing these entries and then re-processing the same files causes the ingestion log to accumulate duplicate entries, growing unboundedly on every cycle.
+
+**The cleanup must distinguish failed runs from normal no-entity files:**
+- A failed/interrupted run logs ALL files with `signals_created: 0` and no `reason` field (or `reason: "interrupted"`)
+- A normal run logs files with `signals_created: 0` and `reason: "no_entities"` — these are valid and should be KEPT
+
+**Correct cleanup pattern** — only remove entries that are explicitly from failed runs:
 ```python
 from datetime import datetime, timezone
 
 INGESTION_LOG = Path("/root/.hermes/commons/db/ocas-elephas/ingestion_log.jsonl")
-lines = INGESTION_LOG.read_text().strip().split('\n')
+lines = INGESTION_LOG.read_text().strip().split('\\n')
 kept = []
 for line in lines:
     if not line.strip():
         continue
     entry = json.loads(line)
-    if entry.get("signals_created", 0) == 0:
+    signals_created = entry.get("signals_created", 0)
+    reason = entry.get("reason", "")
+    # Only remove zero-signal entries from interrupted runs, not legitimate no_entities
+    if signals_created == 0 and reason == "":  # No reason = old format / interrupted
         ingested_at = entry.get("ingested_at", "")
         if "T" in ingested_at:
             ingested_time = datetime.fromisoformat(ingested_at.replace('Z', '+00:00'))
@@ -1057,12 +1315,14 @@ for line in lines:
             if age_hours > 1:  # Older than 1 hour = likely stale
                 continue
     kept.append(line)
-INGESTION_LOG.write_text('\n'.join(kept) + '\n')
+INGESTION_LOG.write_text('\\n'.join(kept) + '\\n')
 ```
 
-In a 2026-04-19 run, this cleaned 2,320 stale entries out of 3,196 total.
+**The `elephas_pipeline.py` implementation is over-aggressive** — it currently removes ALL `signals_created=0` entries older than 15 min (line ~297-306), causing the same ~900 journal files to be re-processed every cycle with duplicate log entries. Fix the `clean_stale_entries()` function to preserve entries with `reason: "no_entities"`.
 
-Discovered 2026-04-19.
+Impact observed 2026-04-25: ~898 duplicate log entries added per ingest cycle due to over-aggressive cleanup of legitimate `no_entities` entries.
+
+Discovered 2026-04-19. Over-aggressive behavior diagnosed 2026-04-25.
 
 ### Agent-only classification for Taste signals
 
@@ -1095,11 +1355,13 @@ No `confidence` field present. Contrast with Scout/Sift entities which include `
 
 **Impact**: Taste-sourced candidates are never promoted during immediate consolidation because they lack `high` or `medium` confidence. They remain in the pending queue indefinitely unless manually promoted or the confidence is set during deep consolidation.
 
-**Workaround**: For user-relevant Taste entities that are clearly correct (venues from calendar events, restaurants from emails), manually promote via `elephas.candidates.promote` or run deep consolidation which may apply different confidence scoring.
+**Broader issue**: This isn't limited to Taste. Weave expansion journals also sometimes omit confidence (e.g., `"confidence": "med"` or missing entirely). The `is_promotable()` helper handles `"med"` as a valid abbreviation, but missing confidence fields always default to `low` and block promotion.
 
-**Root cause**: The Taste skill's journal format doesn't emit confidence for extracted entities. Consider updating the Taste skill to include confidence scores based on extraction certainty.
+**Workaround**: For user-relevant entities that are clearly correct (venues from calendar events, restaurants from emails, contacts from Weave sync), manually promote via `elephas.candidates.promote`. During manual promotion, override the confidence to `"medium"` for user-relevant entities from trusted source skills.
 
-Discovered 2026-04-19 during ingestion+consolidation run.
+**Root cause**: Source skills' journal formats don't consistently emit confidence for extracted entities. Consider updating source skills to include confidence scores based on extraction certainty.
+
+Discovered 2026-04-19 during ingestion+consolidation run. Weave variant also observed 2026-04-19.
 
 ### Cypher CREATE closing paren bug (critical)
 
@@ -1194,6 +1456,108 @@ for line in lines:
 **Prevention**: Don't log ingestion entries until the file is fully processed. Use a temporary log during processing, then commit atomically.
 
 Discovered 2026-04-19 during ingest+consolidate run.
+
+### execute_code sandbox isolation for multi-step operations (critical)
+
+Each `execute_code` call runs in a completely isolated context — variables, imports, and state from one call are **not available** in the next. This makes incremental debugging of ingestion pipelines impossible within a session.
+
+**Wrong** (trying to build state across calls):
+```python
+# Call 1: define helpers
+DB_PATH = Path("/root/.hermes/commons/db/ocas-elephas/chronicle.lbug")
+def _esc(s): ...
+
+# Call 2: use helpers — NameError! DB_PATH and _esc don't exist
+conn = lb.Connection(lb.Database(str(DB_PATH)))
+```
+
+**Correct** — write the entire pipeline to a Python file, then execute it:
+```python
+# Write complete script to file
+write_file("commons/db/ocas-elephas/elephas_pipeline.py", full_script_content)
+
+# Run via terminal
+terminal("python3 /root/.hermes/commons/db/ocas-elephas/elephas_pipeline.py")
+```
+
+**Or** — put everything in a single `execute_code` call with all helpers inline. Never assume cross-call state.
+
+This applies to any Elephas ingestion/consolidation script that needs 3+ tool calls. The `execute_code` sandbox resets between calls.
+
+Discovered 2026-04-19 during ingest+consolidation run when attempting incremental pipeline building.
+
+### Self-contained pipeline script pattern (recommended)
+
+For reliable ingest+consolidate runs, use a self-contained Python script at `{agent_root}/commons/db/ocas-elephas/elephas_pipeline.py` rather than calling individual commands. The script should:
+
+1. Clean stale ingestion log entries (entries with `signals_created: 0` older than 15 min)
+2. Load processed files checking **all five** log key variants (`file`, `journal_file`, `journal_path`, `file_path`, `source_file`) with both absolute and relative path forms
+3. Scan journal directories for unprocessed `.json` files
+4. Extract `entities_observed` from all four locations (top-level, `decision`, `decision.payload`, `payload`)
+5. Extract enriched contacts from Weave enrichment journals (`enriched[]` field — format gap)
+6. Handle all entity type variants (strings, ints, dicts, repr-format payloads)
+7. Create Signal → Candidate chains with proper `Supports` edges
+8. Run immediate consolidation with `is_promotable()` confidence checking
+9. Write Action Journal and decision records
+
+A tested reference implementation exists at `/root/.hermes/commons/db/ocas-elephas/elephas_pipeline.py`. When running via cron or scheduled tasks, prefer writing the script to disk and executing via `terminal()` rather than multi-step `execute_code` calls (see sandbox isolation note above).
+
+**Verification after each run:**
+```cypher
+-- Check for orphan signals (should be 0)
+MATCH (s:Signal {status: 'active'}) WHERE NOT EXISTS { MATCH (s)-[:Supports]->() } RETURN count(s);
+-- Check pending by relevance
+MATCH (c:Candidate {status: 'pending'}) RETURN c.user_relevance, count(c);
+-- CRITICAL: Check for remaining user-relevant candidates (should be 0 after consolidation)
+MATCH (c:Candidate {status: 'pending', user_relevance: 'user'}) RETURN c.id, c.proposed_data, c.confidence, c.created_at;
+```
+
+**Critical**: The "Promoted: N" counter in pipeline output can be inaccurate (both false-0 and false-positive). Always verify the database state directly using the queries above — especially the remaining user-relevant candidates check.
+
+Created 2026-04-19 after multiple debugging iterations revealed the need for a single authoritative pipeline script.
+
+### CONTAINS matching in deep consolidation causes false duplicate detection (discovered 2026-04-25)
+
+When the deep consolidation checks if an entity already exists in Chronicle before promoting a candidate, using `CONTAINS` instead of exact match (`=`) causes false-positive duplicate detection.
+
+**Wrong** — CONTAINS matches "DuckDuckGo" inside "Google Brave DuckDuckGo Startpage":
+```python
+r = conn.execute(f"""MATCH (e:{label}) WHERE e.name CONTAINS '{escaped_name[:40]}' RETURN e.id LIMIT 3""")
+```
+
+This triggers the `duplicate_of_existing` SET path — which suffers from Variant B bug (SET doesn't persist) — **and** prevents the candidate from being properly promoted as a new entity.
+
+**Correct** — use exact match for existing-entity check:
+```python
+r = conn.execute(f"""MATCH (e:{label}) WHERE e.name = '{escaped_name}' RETURN e.id LIMIT 1""")
+```
+
+CONTAINS is acceptable for *relevance resolution* (determining if a name is related to the user's known entities) but never for *duplicate detection* in the promotion path.
+
+### Deep consolidation pipeline script (added 2026-04-25)
+
+The existing `elephas_pipeline.py` handles journal ingestion + immediate consolidation only. For deep consolidation (memory + session ingestion), a companion script exists at:
+
+```
+/root/.hermes/commons/db/ocas-elephas/elephas_deep_pipeline.py
+```
+
+This runs three phases:
+1. **Memory Ingestion** — extracts entities from `MEMORY.md` and `USER.md` (tracks content hashes), marks all as `user_relevance: "user"`
+2. **Session Log Ingestion** — processes unprocessed `.jsonl` session files, extracts entity names from human/assistant messages via regex patterns
+3. **Deep Consolidation** — promotes user-relevant candidates, resolves `unknown` relevance, generates location-affinity inferences
+
+Run with:
+```bash
+python3 /root/.hermes/commons/db/ocas-elephas/elephas_deep_pipeline.py
+```
+
+**Known issue**: The script's existing-entity check in deep consolidation uses `CONTAINS` which causes false duplicates (see above). After running, always verify:
+```cypher
+MATCH (c:Candidate {status: 'pending', user_relevance: 'user'}) 
+RETURN c.id, c.proposed_data, c.confidence, c.created_at
+```
+If remaining user-relevant candidates exist, promote them manually with exact name matching.
 
 ### elephas_run_v4.py parameter binding bug
 
