@@ -2,21 +2,25 @@
 
 Utility scripts for Chronicle maintenance and diagnostics.
 
-## ingest_and_consolidate.py
+## elephas_pipeline.py
 
-Comprehensive journal ingestion and immediate consolidation script.
+Self-contained ingest + immediate consolidation pipeline. This is the
+canonical script invoked by the `elephas:ingest` cron and by the
+`elephas.ingest.journals` / `elephas.consolidate.immediate` commands.
 
 **Features:**
+- Cleans stale ingestion-log entries
 - Processes unprocessed journal files from all skill directories
-- Extracts entities_observed, relationships_observed, and preferences_observed
-- Handles signal payloads in legacy and native formats
+- Extracts entities_observed, relationships_observed, preferences_observed
+- Handles legacy and native signal payload formats (including Python repr)
 - Creates Signal nodes and Candidate nodes
+- Runs `run_weave_enrichment_ingest()` for the Weave enrichment format gap
 - Promotes eligible candidates to Chronicle facts
 - Writes Action Journal
 
 **Usage:**
 ```bash
-python3 /root/.hermes/skills/ocas-elephas/scripts/ingest_and_consolidate.py
+python3 /root/.hermes/skills/ocas-elephas/scripts/elephas_pipeline.py
 ```
 
 **Key behaviors:**
@@ -32,6 +36,21 @@ python3 /root/.hermes/skills/ocas-elephas/scripts/ingest_and_consolidate.py
 - Creates or updates candidates from signals
 - Promotes user-relevant candidates with high/med confidence
 - Writes detailed journal to `journals/ocas-elephas/YYYY-MM-DD/`
+
+## elephas_deep_pipeline.py
+
+Companion script for deep consolidation: ingests Memory files and session
+logs, then runs identity reconciliation and inference generation. Invoked
+by the `elephas:deep` cron.
+
+**Usage:**
+```bash
+python3 /root/.hermes/skills/ocas-elephas/scripts/elephas_deep_pipeline.py
+```
+
+## _cron_status.py
+
+Cron health diagnostic helper.
 
 ## Diagnostic queries
 
