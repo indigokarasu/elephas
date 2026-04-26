@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Quick Chronicle status check for cron run."""
+import os
 import real_ladybug as lb
 from pathlib import Path
 
-DB = Path("/root/.hermes/commons/db/ocas-elephas/chronicle.lbug")
+AGENT_ROOT = Path(os.environ.get("HERMES_HOME") or os.environ.get("OCAS_AGENT_ROOT") or Path.home() / ".hermes")
+DB = AGENT_ROOT / "commons/db/ocas-elephas/chronicle.lbug"
 assert DB.exists(), f"DB not found: {DB}"
 
 db = lb.Database(str(DB))
