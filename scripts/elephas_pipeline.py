@@ -12,11 +12,12 @@ import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path("/root/.hermes/commons/db/ocas-elephas/chronicle.lbug")
-CONFIG_PATH = Path("/root/.hermes/commons/db/ocas-elephas/config.json")
-INGESTION_LOG = Path("/root/.hermes/commons/db/ocas-elephas/ingestion_log.jsonl")
-JOURNALS_ROOT = Path("/root/.hermes/commons/journals")
-DECISIONS_LOG = Path("/root/.hermes/commons/db/ocas-elephas/decisions.jsonl")
+AGENT_ROOT = Path(os.environ.get("HERMES_HOME") or os.environ.get("OCAS_AGENT_ROOT") or Path.home() / ".hermes")
+DB_PATH = AGENT_ROOT / "commons/db/ocas-elephas/chronicle.lbug"
+CONFIG_PATH = AGENT_ROOT / "commons/db/ocas-elephas/config.json"
+INGESTION_LOG = AGENT_ROOT / "commons/db/ocas-elephas/ingestion_log.jsonl"
+JOURNALS_ROOT = AGENT_ROOT / "commons/journals"
+DECISIONS_LOG = AGENT_ROOT / "commons/db/ocas-elephas/decisions.jsonl"
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -872,7 +873,7 @@ def run_consolidate(conn=None):
 
 def write_journal(conn, signals_created, candidates_created, promoted):
     """Write Action Journal for this run."""
-    journal_dir = Path("/root/.hermes/commons/journals/ocas-elephas")
+    journal_dir = AGENT_ROOT / "commons/journals/ocas-elephas"
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     journal_dir = journal_dir / today
     journal_dir.mkdir(parents=True, exist_ok=True)

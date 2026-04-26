@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # elephas.ingest.journals — ingest structured signals from skill journal files
-import sys, json, uuid, traceback, re
+import os, sys, json, uuid, traceback, re
 from pathlib import Path
 from datetime import datetime, timezone
 
 # ── paths ──────────────────────────────────────────────────────────────────
-AGENT_ROOT       = Path.home() / '.hermes'
+AGENT_ROOT       = Path(os.environ.get("HERMES_HOME") or os.environ.get("OCAS_AGENT_ROOT") or Path.home() / ".hermes")
 COMMONS_ROOT     = AGENT_ROOT / 'commons'
 DB_DIR           = COMMONS_ROOT / 'db/ocas-elephas'
 JOURNALS_DIR     = COMMONS_ROOT / 'journals'

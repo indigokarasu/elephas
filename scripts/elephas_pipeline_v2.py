@@ -7,8 +7,9 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 # === PATHS ===
-DB_DIR = Path("/root/.hermes/commons/db/ocas-elephas")
-JOURNALS_ROOT = Path("/root/.hermes/commons/journals")
+AGENT_ROOT = Path(os.environ.get("HERMES_HOME") or os.environ.get("OCAS_AGENT_ROOT") or Path.home() / ".hermes")
+DB_DIR = AGENT_ROOT / "commons/db/ocas-elephas"
+JOURNALS_ROOT = AGENT_ROOT / "commons/journals"
 INGESTION_LOG = DB_DIR / "ingestion_log.jsonl"
 STAGING_DIR = DB_DIR / "staging"
 STAGING_DIR.mkdir(exist_ok=True)

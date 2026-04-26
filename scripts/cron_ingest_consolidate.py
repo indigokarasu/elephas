@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Elephas cron: ingest unprocessed journals + consolidate (immediate)."""
 
+import os
 from pathlib import Path
 import json
 from datetime import datetime, timezone
 import real_ladybug as lb
 
-JOURNALS_ROOT = Path("/root/.hermes/commons/journals")
-DB_DIR = Path("/root/.hermes/commons/db/ocas-elephas")
+AGENT_ROOT = Path(os.environ.get("HERMES_HOME") or os.environ.get("OCAS_AGENT_ROOT") or Path.home() / ".hermes")
+JOURNALS_ROOT = AGENT_ROOT / "commons/journals"
+DB_DIR = AGENT_ROOT / "commons/db/ocas-elephas"
 INGESTION_LOG = DB_DIR / "ingestion_log.jsonl"
 DB_PATH = DB_DIR / "chronicle.lbug"
 

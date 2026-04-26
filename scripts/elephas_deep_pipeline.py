@@ -9,15 +9,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-DB_PATH = Path("/root/.hermes/commons/db/ocas-elephas/chronicle.lbug")
-CONFIG_PATH = Path("/root/.hermes/commons/db/ocas-elephas/config.json")
-INGESTION_LOG = Path("/root/.hermes/commons/db/ocas-elephas/ingestion_log.jsonl")
-MEMORY_INGESTION_LOG = Path("/root/.hermes/commons/db/ocas-elephas/memory_ingestion_log.jsonl")
-SESSION_INGESTION_LOG = Path("/root/.hermes/commons/db/ocas-elephas/session_ingestion_log.jsonl")
-JOURNALS_ROOT = Path("/root/.hermes/commons/journals")
-MEMORIES_DIR = Path("/root/.hermes/memories")
-SESSIONS_DIR = Path("/root/.hermes/sessions")
-DECISIONS_LOG = Path("/root/.hermes/commons/db/ocas-elephas/decisions.jsonl")
+AGENT_ROOT = Path(os.environ.get("HERMES_HOME") or os.environ.get("OCAS_AGENT_ROOT") or Path.home() / ".hermes")
+DB_PATH = AGENT_ROOT / "commons/db/ocas-elephas/chronicle.lbug"
+CONFIG_PATH = AGENT_ROOT / "commons/db/ocas-elephas/config.json"
+INGESTION_LOG = AGENT_ROOT / "commons/db/ocas-elephas/ingestion_log.jsonl"
+MEMORY_INGESTION_LOG = AGENT_ROOT / "commons/db/ocas-elephas/memory_ingestion_log.jsonl"
+SESSION_INGESTION_LOG = AGENT_ROOT / "commons/db/ocas-elephas/session_ingestion_log.jsonl"
+JOURNALS_ROOT = AGENT_ROOT / "commons/journals"
+MEMORIES_DIR = AGENT_ROOT / "memories"
+SESSIONS_DIR = AGENT_ROOT / "sessions"
+DECISIONS_LOG = AGENT_ROOT / "commons/db/ocas-elephas/decisions.jsonl"
 
 assert DB_PATH.exists(), f"DB not found: {DB_PATH}"
 
@@ -731,7 +732,7 @@ def verify(conn):
 
 # ── Journal ─────────────────────────────────────────────────────────────────
 def write_journal(conn, memory_sigs, session_sigs, promoted, resolved_user, resolved_agent, inferences):
-    journal_dir = Path("/root/.hermes/commons/journals/ocas-elephas")
+    journal_dir = AGENT_ROOT / "commons/journals/ocas-elephas"
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     journal_dir = journal_dir / today
     journal_dir.mkdir(parents=True, exist_ok=True)

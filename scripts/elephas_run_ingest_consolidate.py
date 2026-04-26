@@ -5,17 +5,19 @@ Handles all known edge cases: repr payloads, mixed confidence,
 type-specific properties, stale log entries, etc.
 """
 import json
+import os
 import uuid
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 # === CONFIGURATION ===
-HERE = Path("/root/.hermes/commons/db/ocas-elephas")
+AGENT_ROOT = Path(os.environ.get("HERMES_HOME") or os.environ.get("OCAS_AGENT_ROOT") or Path.home() / ".hermes")
+HERE = AGENT_ROOT / "commons/db/ocas-elephas"
 DB_PATH = HERE / "chronicle.lbug"
-JOURNALS_ROOT = Path("/root/.hermes/commons/journals")
+JOURNALS_ROOT = AGENT_ROOT / "commons/journals"
 INGESTION_LOG = HERE / "ingestion_log.jsonl"
-JOURNAL_DIR = Path("/root/.hermes/commons/journals/ocas-elephas")
+JOURNAL_DIR = AGENT_ROOT / "commons/journals/ocas-elephas"
 RUN_TS = datetime.now(timezone.utc)
 RUN_TS_STR = RUN_TS.isoformat()
 RUN_TS_PREFIX = RUN_TS.strftime("%Y-%m-%dT%H:%M")

@@ -2,6 +2,7 @@
 Elephas journal ingestion and immediate consolidation.
 Processes unprocessed journal files, creates signals and candidates, promotes eligible candidates.
 """
+import os
 import real_ladybug as lb
 import json, uuid, re, hashlib
 import shutil
@@ -10,12 +11,13 @@ from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 
 # Correct paths based on operational notes
-DB_PATH = Path("/root/.hermes/commons/db/ocas-elephas/chronicle.lbug")
-JOURNALS_DIR = Path("/root/.hermes/commons/journals")
-INGESTION_LOG = Path("/root/.hermes/commons/db/ocas-elephas/ingestion_log.jsonl")
-INTAKE_DIR = Path("/root/.hermes/commons/db/ocas-elephas/intake")
+AGENT_ROOT = Path(os.environ.get("HERMES_HOME") or os.environ.get("OCAS_AGENT_ROOT") or Path.home() / ".hermes")
+DB_PATH = AGENT_ROOT / "commons/db/ocas-elephas/chronicle.lbug"
+JOURNALS_DIR = AGENT_ROOT / "commons/journals"
+INGESTION_LOG = AGENT_ROOT / "commons/db/ocas-elephas/ingestion_log.jsonl"
+INTAKE_DIR = AGENT_ROOT / "commons/db/ocas-elephas/intake"
 PROCESSED_DIR = INTAKE_DIR / "processed"
-STAGING_DIR = Path("/root/.hermes/commons/db/ocas-elephas/staging")
+STAGING_DIR = AGENT_ROOT / "commons/db/ocas-elephas/staging"
 
 # Create directories
 INTAKE_DIR.mkdir(parents=True, exist_ok=True)
@@ -585,7 +587,7 @@ def _promote_candidates(conn):
 
 def _write_journal(promoted, sig_count, cand_count, stale_removed=0):
     """Write Action Journal for this run."""
-    journal_dir = Path("/root/.hermes/commons/journals/ocas-elephas") / NOW[:10]
+    journal_dir = AGENT_ROOT / "commons/journals/ocas-elephas" / NOW[:10]
     journal_dir.mkdir(parents=True, exist_ok=True)
     
     journal = {
