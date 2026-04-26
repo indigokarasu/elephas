@@ -645,6 +645,66 @@ WHERE NOT EXISTS { MATCH (s)-[:Supports]->() }
 RETURN s.id, s.payload, s.user_relevance
 ```
 
+### Weave enrichment orphan signals (post-run resolution)
+
+The `run_weave_enrichment_ingest()` phase creates Signal → Candidate chains inside a broad `try/except` that catches all exceptions. If `create_candidate()` fails after `create_signal()` succeeds, the signal remains `active` with no `Supports` edge. The pipeline's `clean_orphan_signals()` only marks these as `orphaned` — it does **not** create the missing candidate or promote.
+
+**Detection**: After every pipeline run, verify zero orphan signals:
+```cypher
+MATCH (s:Signal {status: 'active'})
+WHERE NOT EXISTS { MATCH (s)-[:Supports]->() }
+RETURN count(s) AS orphan_signals
+```
+
+**Resolution** — iterate orphan signals, parse payload, create candidate, link via Supports, and promote:
+```python
+for sid, payload_str, relevance, skill in orphans:
+    p = json.loads(payload_str)  # or parse_repr_payload() fallback
+    name = p.get("name", "")
+    if not name: continue
+    conf_val = str(p.get("confidence", "0.8"))
+    etype = p.get("type", "Person")
+
+    # Create candidate
+    cand_id = _gen_id("cand")
+    proposed_data = json.dumps({"name": name, "type": etype})
+    conn.execute(f"""CREATE (c:Candidate {{
+        id: '{_esc(cand_id)}', proposed_type: 'Entity/Person',
+        proposed_data: '{_esc(proposed_data)}',
+        supporting_signals: '{_esc(json.dumps([sid]))}',
+        confidence: '{_esc(conf_val)}', user_relevance: 'user',
+        status: 'pending', created_at: '{_ts()}',
+        resolved_at: '', resolved_reason: ''
+    }})""")
+    conn.execute(f"""MATCH (s:Signal {{id: '{_esc(sid)}'}})
+        MATCH (c:Candidate {{id: '{_esc(cand_id)}'}})
+        CREATE (s)-[:Supports]->(c)""")
+
+    # Check if entity exists, then promote
+    existing = conn.execute(f"MATCH (e:Entity {{name: '{_esc(name)}'}}) RETURN e.id LIMIT 1")
+    if [x for x in existing]:
+        conn.execute(f"""MATCH (c:Candidate {{id: '{_esc(cand_id)}'}})
+            SET c.status = 'promoted', c.resolved_at = '{_ts()}',
+                c.resolved_reason = 'duplicate_of_existing'""")
+    else:
+        ent_id = _gen_id("ent")
+        conn.execute(f"""CREATE (e:Entity {{id: '{_esc(ent_id)}',
+            name: '{_esc(name)}', entity_type: 'Person',
+            aliases: '[]', identifiers: '{{}}', possible_matches: '[]',
+            merge_history: '[]', identity_state: 'distinct',
+            source_skill: 'elephas-consolidate', record_time: '{_ts()}'}})""")
+        conn.execute(f"""MATCH (c:Candidate {{id: '{_esc(cand_id)}'}})
+            MATCH (e:Entity {{id: '{_esc(ent_id)}'}})
+            CREATE (c)-[:Promotes]->(e)""")
+        conn.execute(f"""MATCH (c:Candidate {{id: '{_esc(cand_id)}'}})
+            SET c.status = 'promoted', c.resolved_at = '{_ts()}',
+                c.resolved_reason = 'promoted'""")
+```
+
+**Prevention**: The deeper fix is making `run_weave_enrichment_ingest()` transactional — create the candidate first, or wrap signal+candidate creation in a single LadybugDB tx, so partial failures don't leave orphan signals. The orphan resolution above is the current workaround.
+
+Discovered 2026-04-26 during cron ingest+consolidate run.
+
 ### Ingestion log staleness
 
 Failed runs write ingestion log entries with `signals_created: 0`. Subsequent runs skip those files because their paths are already logged. **Always clean stale entries** (signals_created=0 from interrupted runs) before re-processing:
