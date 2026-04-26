@@ -1,3 +1,9 @@
+## [3.2.8] - 2026-04-26
+
+### Removed
+- Stale pipeline variants superseded by `elephas_pipeline.py` and `elephas_deep_pipeline.py`: `elephas_pipeline_v2.py`, `elephas_run_ingest_consolidate.py`, `cron_ingest_consolidate.py`, `ingest_and_consolidate.py`, `ingest_journals.py`.
+- References to nonexistent `immediate_consolidate.py` from SKILL.md (replaced with current `elephas_pipeline.py` invocation).
+
 ## [2026-04-08] Filesystem path normalization
 
 ### Fixed

@@ -334,9 +334,9 @@ When `elephas` commands fail with import errors or missing table errors, run the
    }
    ```
 
-4. **Run the immediate consolidation script:**
+4. **Run the immediate consolidation pipeline:**
    ```bash
-   python3 /root/.hermes/2026-04-06_21-34-18/skills/elephas/scripts/immediate_consolidate.py
+   python3 {skill_root}/scripts/elephas_pipeline.py
    ```
 
 Read `references/init_pattern.md` for the `_open_db` implementation pattern. Full DDL is in `references/schemas.md`.
@@ -723,10 +723,10 @@ Elephas uses two separate database directories that are easy to confuse:
 
 | Prefix | Path | Used by |
 |---|---|---|
-| `hermes-elephas` | `/root/.hermes/db/hermes-elephas/` | `immediate_consolidate.py` script (old, wrong) |
+| `hermes-elephas` | `/root/.hermes/db/hermes-elephas/` | Legacy/deprecated path — do not use |
 | `ocas-elephas` | `/root/.hermes/commons/db/ocas-elephas/` | Skill spec and actual Chronicle database |
 
-**The `immediate_consolidate.py` script at `~/.hermes/2026-04-06_21-34-18/skills/elephas/scripts/immediate_consolidate.py` has hardcoded paths to `hermes-elephas` (wrong DB). Always use Python scripts you write inline that reference `commons/db/ocas-elephas/` — never run the shipped script directly without patching paths.**
+**Always reference `commons/db/ocas-elephas/`. Any historical reference to `hermes-elephas` is wrong — confirm paths before running any inline script.**
 
 Confirm the correct DB path before every run:
 ```python
@@ -874,7 +874,7 @@ db = lb.Database(str(DB_PATH))
 conn = lb.Connection(db)  # Works — all connections are read-write capable
 ```
 
-The `immediate_consolidate.py` shipped script uses the wrong API. Always write inline scripts with the correct constructor. Discovered 2026-04-19.
+Historical inline scripts that used `lb.Database(path, mode='read_write')` use the wrong API. Always use the constructor shown above. Discovered 2026-04-19.
 
 ### Weave enrichment format gap (critical — pipeline patched 2026-04-25)
 
