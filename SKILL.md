@@ -12,7 +12,7 @@ description: >
 metadata:
   author: Indigo Karasu
   email: mx.indigo.karasu@gmail.com
-  version: "3.2.6"
+  version: "3.2.7"
   hermes:
     tags: [knowledge-graph, ingestion, entities]
     category: memory
@@ -559,7 +559,7 @@ Registration during `elephas.init`:
 
 
 ## Operational notes
-## Operational notes
+
 See `references/operational_notes.md` for production lessons:
 - LadybugDB stores complex fields in internal format (not standard JSON) — always handle `json.JSONDecodeError`
 - Entity observation field names vary across skills (`entity` vs `name`, `entity_type` vs `type`) — check both top-level and `decision.payload`
@@ -918,12 +918,12 @@ The `Candidate.confidence` field stores confidence in two formats:
 - **Text**: `"high"`, `"medium"`, `"low"` — from Scout/Sift/Custodian signals
 - **Numeric string**: `"0.3"`, `"0.6"` — from Taste/other signals with float confidence
 
-When filtering promotable candidates, handle both formats:
+When filtering promotable candidates, handle all formats including legacy abbreviations:
 
 ```python
 def is_promotable(conf_str):
     if conf_str in ("high",): return True
-    if conf_str == "medium": return True  # Medium = promotable
+    if conf_str in ("medium", "med"): return True  # med = legacy abbreviation used by some candidates
     try:
         return float(conf_str) >= 0.6
     except:
@@ -986,6 +986,246 @@ if isinstance(decision, dict):
     if isinstance(payload, dict):
         nested = payload.get("entities_observed", [])
 ```
+
+Discovered 2026-04-19.
+
+### Promotion counter bug (elephas_ingest_consolidate.py)
+
+The `elephas_ingest_consolidate.py` script's promotion counter is inaccurate. It reports "Promoted: 0" even when candidates are successfully promoted. The actual promotion logic works correctly (candidates do get promoted to Chronicle), but the counter variable is not being incremented properly.
+
+**Symptoms**: Script output shows "Promoted: 0" but `Candidate.status = 'promoted'` entries exist in the database.
+
+**Workaround**: Trust the database state over the script counter. Query for promoted candidates directly:
+```python
+result = conn.execute("""
+    MATCH (c:Candidate {status: 'promoted'})
+    WHERE c.resolved_at STARTS WITH '{today}'
+    RETURN count(c)
+""")
+```
+
+**Root cause**: The `run_consolidation()` function returns a counter that may not capture all promotion paths. Investigate the counter increment logic in the promotion flow.
+
+Discovered 2026-04-19.
+
+### Ingestion log key inconsistency (critical)
+
+The `ingestion_log.jsonl` file uses **two different keys** for the journal file path:
+- `"file"` — used by most ingestion entries (Scout, Sift, Custodian, Bower, etc.)
+- `"journal_file"` — used by Elephas' own consolidation journal entries
+
+When loading the ingestion log to track processed files, always check both keys:
+
+**Wrong** (crashes on Elephas consolidation entries):
+```python
+for line in ingestion_log:
+    entry = json.loads(line)
+    processed_files[entry["file"]] = entry  # KeyError if key is "journal_file"
+```
+
+**Correct**:
+```python
+for line in ingestion_log:
+    entry = json.loads(line)
+    file_key = entry.get("file") or entry.get("journal_file")
+    if file_key:
+        processed_files[file_key] = entry
+```
+
+Discovered 2026-04-19 during ingest+consolidation run.
+
+### Stale ingestion log cleanup (pre-run requirement)
+
+Before running ingestion, always clean stale entries from `ingestion_log.jsonl`. Failed/interrupted runs write entries with `signals_created: 0`, causing subsequent runs to skip those files.
+
+**Cleanup pattern**:
+```python
+from datetime import datetime, timezone
+
+INGESTION_LOG = Path("/root/.hermes/commons/db/ocas-elephas/ingestion_log.jsonl")
+lines = INGESTION_LOG.read_text().strip().split('\n')
+kept = []
+for line in lines:
+    if not line.strip():
+        continue
+    entry = json.loads(line)
+    if entry.get("signals_created", 0) == 0:
+        ingested_at = entry.get("ingested_at", "")
+        if "T" in ingested_at:
+            ingested_time = datetime.fromisoformat(ingested_at.replace('Z', '+00:00'))
+            age_hours = (datetime.now(timezone.utc) - ingested_time).total_seconds() / 3600
+            if age_hours > 1:  # Older than 1 hour = likely stale
+                continue
+    kept.append(line)
+INGESTION_LOG.write_text('\n'.join(kept) + '\n')
+```
+
+In a 2026-04-19 run, this cleaned 2,320 stale entries out of 3,196 total.
+
+Discovered 2026-04-19.
+
+### Agent-only classification for Taste signals
+
+Taste journal signals with `user_relevance: user` in `latest_ingestion_signals.json` may still be classified as `agent_only` during ingestion. This happens because:
+
+1. The `latest_ingestion_signals.json` format differs from what the ingestion script expects
+2. The script uses different field names (`signal_id` vs `id`, `name` at top level vs nested in `payload`)
+3. The user_relevance classification logic may not properly handle the Taste signal format
+
+**Investigation needed**: Check the `_extract_relevance()` function in the ingestion script to ensure it correctly reads `user_relevance` from Taste signals.
+
+**Workaround**: After ingestion, manually review agent_only candidates from Taste and promote user-relevant ones via `elephas.candidates.promote`.
+
+Discovered 2026-04-19.
+
+### Taste journal entities lack confidence fields
+
+Taste journal `entities_observed` entries (in `decision.entities_observed`) contain `name`, `type`, and `user_relevance` fields but **do not include a `confidence` field**. When the ingestion script creates candidates from these entities, confidence defaults to `low` because no value is provided.
+
+**Example Taste entity**:
+```json
+{
+  "type": "Place",
+  "name": "A16 - San Francisco",
+  "user_relevance": "user"
+}
+```
+
+No `confidence` field present. Contrast with Scout/Sift entities which include `confidence: "high"`.
+
+**Impact**: Taste-sourced candidates are never promoted during immediate consolidation because they lack `high` or `medium` confidence. They remain in the pending queue indefinitely unless manually promoted or the confidence is set during deep consolidation.
+
+**Workaround**: For user-relevant Taste entities that are clearly correct (venues from calendar events, restaurants from emails), manually promote via `elephas.candidates.promote` or run deep consolidation which may apply different confidence scoring.
+
+**Root cause**: The Taste skill's journal format doesn't emit confidence for extracted entities. Consider updating the Taste skill to include confidence scores based on extraction certainty.
+
+Discovered 2026-04-19 during ingestion+consolidation run.
+
+### Cypher CREATE closing paren bug (critical)
+
+When writing `CREATE` statements with f-strings, the `}}` escape produces a single `}` but the Cypher statement also needs a closing `)` for the node pattern. Missing `)` causes:
+
+```
+Parser exception: Invalid input <CREATE (c:Candidate {...}: expected rule oC_SingleQuery
+```
+
+**Wrong** — `}}` on its own line, then `"""`:
+```python
+conn.execute(f"""
+    CREATE (c:Candidate {{
+        id: '{_esc(cand_id)}',
+        proposed_type: '{_esc(proposed_type)}',
+        ...
+        resolved_reason: ''
+    }}
+""")
+```
+
+**Correct** — `}})` to close both the Cypher object and the CREATE pattern:
+```python
+conn.execute(f"""
+    CREATE (c:Candidate {{
+        id: '{_esc(cand_id)}',
+        proposed_type: '{_esc(proposed_type)}',
+        ...
+        resolved_reason: ''
+    }})""")
+```
+
+This affects ALL `CREATE (n:Label { ... })` statements — Candidate, Entity, Place, Concept, Thing. The `})` must be on the same line or the parser sees an unclosed pattern.
+
+Also applies to `CREATE (e:Entity { ... })` node creation in consolidation. Same fix: `}})"""` not `}}\n"""`.
+
+Discovered 2026-04-19 during ingest+consolidate run.
+
+### _extract_name() doesn't handle int/float types (critical)
+
+When `entities_observed` is an integer (e.g., `0` — Elephas' own consolidation journals report `entities_observed: 0` as a count, not a list), `_extract_name(e)` crashes with:
+
+```
+argument of type 'int' is not iterable
+```
+
+This happens because the function tries `"/" in ev` where `ev` is an int (from `e.get("entity", "")` returning `0`).
+
+**Wrong**:
+```python
+def _extract_name(e):
+    if isinstance(e, str): return e
+    if e.get("name"): return e["name"]
+    ev = e.get("entity", "")
+    if ev and "/" in ev:  # TypeError if ev is int
+        return ev.split("/")[-1]
+    return ev
+```
+
+**Correct** — guard all type checks:
+```python
+def _extract_name(e):
+    if isinstance(e, str): return e
+    if isinstance(e, (int, float)): return str(e)
+    if e.get("name"): return e["name"]
+    if e.get("description"): return e["description"]
+    ev = e.get("entity", "")
+    if ev and "/" in str(ev): return str(ev).split("/")[-1]
+    return str(ev)
+```
+
+Also affects `_extract_type()`, `_get_user_relevance()`, and confidence extraction — all must handle non-dict entity values.
+
+Discovered 2026-04-19 during ingest+consolidate run.
+
+### Current-run stale ingestion log entries (critical)
+
+If ingestion fails partway through (e.g., Cypher bug prevents candidate creation), the script logs ALL files with `signals_created: 0`. The standard cleanup only removes entries older than 1 hour. A re-run within the same hour finds 0 new files because they're all already logged.
+
+**Cleanup pattern for current-run failures**:
+```python
+# Remove entries from this run's timestamp range with signals=0
+for line in lines:
+    entry = json.loads(line)
+    ingested_at = entry.get("ingested_at", "")
+    # Match this run's timestamp prefix (e.g., "2026-04-19T12:37")
+    if RUN_TIMESTAMP_PREFIX in ingested_at and entry.get("signals_created", 0) == 0:
+        continue  # skip this entry
+    kept.append(line)
+```
+
+**Prevention**: Don't log ingestion entries until the file is fully processed. Use a temporary log during processing, then commit atomically.
+
+Discovered 2026-04-19 during ingest+consolidate run.
+
+### elephas_run_v4.py parameter binding bug
+
+The `elephas_run_v4.py` script in the DB directory fails with:
+
+```
+RuntimeError: Runtime exception: Trying to a create a vector with ANY type. This should not happen. Data type is expected to be resolved during binding.
+```
+
+This occurs in `create_signal_node()` when passing parameters via `conn.execute()` with a dict of parameters. LadybugDB's parameter binding has issues with certain data types in the parameter dict.
+
+**Symptoms**: Script crashes on first signal creation attempt during ingestion.
+
+**Workaround**: Write inline Python scripts that use string interpolation with proper escaping instead of parameter binding:
+
+```python
+# Wrong (parameter binding - fails):
+conn.execute(
+    "MERGE (s:Signal {id: $id}) SET s.payload = $pl ...",
+    {"id": sid, "pl": payload_str}
+)
+
+# Correct (string interpolation - works):
+conn.execute(f"""
+    MERGE (s:Signal {{id: '{esc(sid)}'}})
+    SET s.payload = '{esc(payload_str)}'
+""")
+```
+
+**Root cause**: LadybugDB's parameter binding doesn't handle mixed-type parameter dicts well. String interpolation with proper escaping is more reliable.
+
+**Alternative**: Use the manual ingestion approach documented in this conversation - write a custom script that handles heterogeneous journal structures and uses string interpolation.
 
 Discovered 2026-04-19.
 
