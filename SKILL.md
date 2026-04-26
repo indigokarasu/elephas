@@ -12,7 +12,7 @@ description: >
 metadata:
   author: Indigo Karasu
   email: mx.indigo.karasu@gmail.com
-  version: "3.2.7"
+  version: "3.2.8"
   hermes:
     tags: [knowledge-graph, ingestion, entities]
     category: memory
