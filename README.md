@@ -62,6 +62,9 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 
 ## Changelog
 
+
+### v3.2.10 — April 26, 2026
+- Version alignment per spec-ocas-skill-publishing.md (no functional change)
 ### v3.2.8 — April 26, 2026
 - Removed stale pipeline variants superseded by `elephas_pipeline.py` / `elephas_deep_pipeline.py` (`elephas_pipeline_v2.py`, `elephas_run_ingest_consolidate.py`, `cron_ingest_consolidate.py`, `ingest_and_consolidate.py`, `ingest_journals.py`)
 - Removed SKILL.md references to nonexistent `immediate_consolidate.py` (replaced with current `elephas_pipeline.py` invocation)
