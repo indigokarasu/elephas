@@ -62,6 +62,10 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 
 ## Changelog
 
+### v3.2.8 — April 26, 2026
+- Removed stale pipeline variants superseded by `elephas_pipeline.py` / `elephas_deep_pipeline.py` (`elephas_pipeline_v2.py`, `elephas_run_ingest_consolidate.py`, `cron_ingest_consolidate.py`, `ingest_and_consolidate.py`, `ingest_journals.py`)
+- Removed SKILL.md references to nonexistent `immediate_consolidate.py` (replaced with current `elephas_pipeline.py` invocation)
+
 ### v3.1.0 -- April 3, 2026
 - Added signal format normalization layer to ingestion pipeline
 - Auto-detects legacy format (`signal_id`, `signal_type`, `provenance`) and converts to native format (`id`, `source_skill`, `source_type`)
@@ -89,14 +93,6 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 
 ### v2.2.0 -- March 22, 2026
 - Routing improvements
-
-### v2.1.0 -- March 22, 2026
-- Automated maintenance with cron registration
-- Ingestion pipeline with staged signal promotion
-- Deep consolidation pass with identity reconciliation
-
-### v2.0.0 -- March 18, 2026
-- Initial release as part of the unified OCAS skill suite
 ---
 
 *Elephas is part of the [OCAS Agent Suite](https://github.com/indigokarasu) -- a collection of interconnected skills for personal intelligence, autonomous research, and continuous self-improvement. Each skill owns a narrow responsibility and communicates with others through structured signal files, shared journals, and Chronicle, a long-term knowledge graph that accumulates verified facts over time.*
