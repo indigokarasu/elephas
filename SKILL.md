@@ -53,7 +53,6 @@ Elephas is the system's long-term memory — the sole writer to Chronicle, the a
 
 Chronicle is the **user's** personal knowledge graph. Only entities relevant to the user's world are promoted to Chronicle facts. Entities encountered only during agent task execution (research, scanning, analysis) remain as unpromoted candidates and are never written to the permanent graph.
 
-
 ## When to use
 
 - Query Chronicle for entities, relationships, events, or inferences
@@ -63,14 +62,12 @@ Chronicle is the **user's** personal knowledge graph. Only entities relevant to 
 - Promote or reject candidates
 - Check Chronicle health and pending queue
 
-
 ## When not to use
 
 - Social relationship queries — use Weave
 - Web research — use Sift
 - Person-focused OSINT — use Scout
 - Direct user communication — use Dispatch
-
 
 ## Responsibility boundary
 
@@ -139,7 +136,6 @@ Read `references/ingestion_pipeline.md` → User relevance scoring for implement
     {run_id}.json         — one Action Journal per consolidation or promotion run
 ```
 
-
 Default config.json:
 ```json
 {
@@ -181,13 +177,11 @@ Default config.json:
 }
 ```
 
-
 ## Database rules
 
 LadybugDB is an embedded single-file database. One `READ_WRITE` process at a time. Other skills open `chronicle.lbug` as `READ_ONLY` only — Elephas holds the `READ_WRITE` connection during active passes.
 
 Surface lock errors immediately. Do not retry silently.
-
 
 ## Auto-initialization
 
@@ -203,20 +197,20 @@ When `elephas` commands fail with import errors or missing table errors, run the
    ```python
    import real_ladybug as lb
    from pathlib import Path
-   
-   DB_PATH = Path("{agent_root}/db/hermes-elephas/chronicle.lbug")
-   
+
+   DB_PATH = Path("{agent_root}/db/ocas-elephas/chronicle.lbug")
+
    # Create directories
    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
    (DB_PATH.parent / "intake").mkdir(parents=True, exist_ok=True)
    (DB_PATH.parent / "intake/processed").mkdir(parents=True, exist_ok=True)
    (DB_PATH.parent / "staging").mkdir(parents=True, exist_ok=True)
-   (Path("{agent_root}/journals/hermes-elephas")).mkdir(parents=True, exist_ok=True)
-   
+   (Path("{agent_root}/journals/ocas-elephas")).mkdir(parents=True, exist_ok=True)
+
    # Run DDL to create tables
    db = lb.Database(str(DB_PATH))
    conn = lb.Connection(db)
-   
+
    statements = [
        """CREATE NODE TABLE Entity (
            id STRING PRIMARY KEY, name STRING, entity_type STRING,
@@ -278,7 +272,7 @@ When `elephas` commands fail with import errors or missing table errors, run the
            FROM Inference TO Place
        )""",
    ]
-   
+
    for stmt in statements:
        conn.execute(stmt)
    ```
@@ -287,11 +281,11 @@ When `elephas` commands fail with import errors or missing table errors, run the
    ```python
    from datetime import datetime, timezone
    import json
-   
-   CONFIG_PATH = Path("{agent_root}/db/hermes-elephas/config.json")
+
+   CONFIG_PATH = Path("{agent_root}/db/ocas-elephas/config.json")
    now = datetime.now(timezone.utc).isoformat()
    config = {
-       "skill_id": "hermes-elephas",
+       "skill_id": "ocas-elephas",
        "skill_version": "3.1.0",
        "config_version": "2",
        "created_at": now,
@@ -313,7 +307,7 @@ When `elephas` commands fail with import errors or missing table errors, run the
    ```
 
 3. **Test with a simple signal:**
-   Create a test signal file in `{agent_root}/db/hermes-elephas/intake/test.signal.json`:
+   Create a test signal file in `{agent_root}/db/ocas-elephas/intake/test.signal.json`:
    ```json
    {
      "id": "test_signal_001",
@@ -340,7 +334,6 @@ When `elephas` commands fail with import errors or missing table errors, run the
    ```
 
 Read `references/init_pattern.md` for the `_open_db` implementation pattern. Full DDL is in `references/schemas.md`.
-
 
 ## Commands
 
@@ -389,7 +382,6 @@ Also report: last consolidation timestamps, pending identity reviews, inference 
 
 **elephas.update** -- Pull latest skill package from GitHub source. Preserves journals and data.
 
-
 ## Run completion
 
 After every Elephas command that modifies Chronicle or processes signals:
@@ -411,13 +403,11 @@ Skill Journals / Signal Intake / Memory Files / Session Logs
         → Remains as Candidate (if agent_only — never promoted)
 ```
 
-
 ## Consolidation passes
 
 Immediate (every 15 min) -- ingest journals and journal signal payloads, create candidates, score confidence, evaluate user relevance, promote high-confidence user-relevant candidates. Scheduled -- promotes remaining, deduplicates.
 
 Deep (every 24 hr) -- ingest Memory files and session logs, full identity reconciliation, user relevance resolution for `unknown` candidates, inference generation, graph cleanup.
-
 
 ## Identity resolution rules
 
@@ -427,13 +417,11 @@ Resolution precedence: exact identifier match → name+location with corroborati
 
 Ambiguous cases preserve separation. Never silently collapse records.
 
-
 ## Write authority
 
 Only Elephas writes to Chronicle. Other skills open `chronicle.lbug` as `READ_ONLY` only.
 
 Elephas does not write to any other skill's database. Elephas does not write to Memory files or session logs.
-
 
 ## OKRs
 
@@ -473,7 +461,6 @@ skill_okrs:
     evaluation_window: 30_runs
 ```
 
-
 ## Optional skill cooperation
 
 - All skills — ingest structured signals from skill journals and journal signal payloads. All skills should include `entities_observed`, `relationships_observed`, and `preferences_observed` in journal payloads when entities are encountered during runs.
@@ -485,7 +472,6 @@ skill_okrs:
 - Sift — emits research signals via journal payloads with `user_relevance` field
 - Agent Memory — reads `MEMORY.md` and `memory/*.md` during deep consolidation
 - Agent Sessions — reads session log transcripts during deep consolidation
-
 
 ## Journal outputs
 
@@ -503,7 +489,6 @@ elephas.consolidate.immediate / .deep (extended):
 - `relevance_resolved` — count of candidates moved from `unknown` to `user` or `agent_only`
 - `agent_only_withheld` — count of candidates withheld from promotion due to `agent_only` relevance
 
-
 ## Initialization
 
 On first invocation of any Elephas command, run `elephas.init`:
@@ -514,7 +499,6 @@ On first invocation of any Elephas command, run `elephas.init`:
 4. Open database with `_open_db()` which auto-creates `chronicle.lbug` and runs DDL if needed
 5. Register cron jobs `elephas:ingest`, `elephas:deep`, and `elephas:update` if not already present (check the platform scheduling registry first)
 6. Log initialization as a DecisionRecord
-
 
 ## Background tasks
 
@@ -536,7 +520,6 @@ Registration during `elephas.init`:
 # Task declared in SKILL.md frontmatter metadata.{platform}.cron
 ```
 
-
 ## Self-update
 
 `elephas.update` pulls the latest package from the `source:` URL in this file's frontmatter. Runs silently — no output unless the version changed or an error occurred.
@@ -556,7 +539,6 @@ Registration during `elephas.init`:
    ```
 6. On failure → retry once. If second attempt fails, report the error and stop.
 7. Output exactly: `I updated Elephas from version {old} to {new}`
-
 
 ## Operational notes
 
@@ -796,7 +778,7 @@ conn.execute(f"""
 ```python
 type_property_map = {
     "Entity": "entity_type",
-    "Place": "place_type", 
+    "Place": "place_type",
     "Concept": "concept_type",
     "Thing": "thing_type"
 }
@@ -1126,7 +1108,7 @@ Two variants of this bug exist:
 if existing_entities:
     conn.execute(f"""
         MATCH (c:Candidate {{id: '{_esc(cand_id)}'}})
-        SET c.status = 'promoted', c.resolved_at = '{_ts()}', 
+        SET c.status = 'promoted', c.resolved_at = '{_ts()}',
             c.resolved_reason = 'duplicate_of_existing'
     """)
     promoted += 1  # Counter is incremented but SET may not persist
@@ -1554,7 +1536,7 @@ python3 {agent_root}/commons/db/ocas-elephas/elephas_deep_pipeline.py
 
 **Known issue**: The script's existing-entity check in deep consolidation uses `CONTAINS` which causes false duplicates (see above). After running, always verify:
 ```cypher
-MATCH (c:Candidate {status: 'pending', user_relevance: 'user'}) 
+MATCH (c:Candidate {status: 'pending', user_relevance: 'user'})
 RETURN c.id, c.proposed_data, c.confidence, c.created_at
 ```
 If remaining user-relevant candidates exist, promote them manually with exact name matching.
@@ -1596,7 +1578,6 @@ Discovered 2026-04-19.
 ## Visibility
 
 public
-
 
 ## Support file map
 
