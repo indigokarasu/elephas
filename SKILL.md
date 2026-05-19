@@ -204,14 +204,14 @@ When `elephas` commands fail with import errors or missing table errors, run the
    import real_ladybug as lb
    from pathlib import Path
    
-   DB_PATH = Path("/root/.hermes/db/hermes-elephas/chronicle.lbug")
+   DB_PATH = Path("{agent_root}/db/hermes-elephas/chronicle.lbug")
    
    # Create directories
    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
    (DB_PATH.parent / "intake").mkdir(parents=True, exist_ok=True)
    (DB_PATH.parent / "intake/processed").mkdir(parents=True, exist_ok=True)
    (DB_PATH.parent / "staging").mkdir(parents=True, exist_ok=True)
-   (Path("/root/.hermes/journals/hermes-elephas")).mkdir(parents=True, exist_ok=True)
+   (Path("{agent_root}/journals/hermes-elephas")).mkdir(parents=True, exist_ok=True)
    
    # Run DDL to create tables
    db = lb.Database(str(DB_PATH))
@@ -288,7 +288,7 @@ When `elephas` commands fail with import errors or missing table errors, run the
    from datetime import datetime, timezone
    import json
    
-   CONFIG_PATH = Path("/root/.hermes/db/hermes-elephas/config.json")
+   CONFIG_PATH = Path("{agent_root}/db/hermes-elephas/config.json")
    now = datetime.now(timezone.utc).isoformat()
    config = {
        "skill_id": "hermes-elephas",
@@ -313,7 +313,7 @@ When `elephas` commands fail with import errors or missing table errors, run the
    ```
 
 3. **Test with a simple signal:**
-   Create a test signal file in `~/.hermes/db/hermes-elephas/intake/test.signal.json`:
+   Create a test signal file in `{agent_root}/db/hermes-elephas/intake/test.signal.json`:
    ```json
    {
      "id": "test_signal_001",
@@ -723,15 +723,15 @@ Elephas uses two separate database directories that are easy to confuse:
 
 | Prefix | Path | Used by |
 |---|---|---|
-| `hermes-elephas` | `/root/.hermes/db/hermes-elephas/` | Legacy/deprecated path — do not use |
-| `ocas-elephas` | `/root/.hermes/commons/db/ocas-elephas/` | Skill spec and actual Chronicle database |
+| `hermes-elephas` | `{agent_root}/db/hermes-elephas/` | Legacy/deprecated path — do not use |
+| `ocas-elephas` | `{agent_root}/commons/db/ocas-elephas/` | Skill spec and actual Chronicle database |
 
 **Always reference `commons/db/ocas-elephas/`. Any historical reference to `hermes-elephas` is wrong — confirm paths before running any inline script.**
 
 Confirm the correct DB path before every run:
 ```python
 from pathlib import Path
-DB_PATH = Path("/root/.hermes/commons/db/ocas-elephas/chronicle.lbug")
+DB_PATH = Path("{agent_root}/commons/db/ocas-elephas/chronicle.lbug")
 assert DB_PATH.exists(), f"Wrong path: {DB_PATH}"
 ```
 
@@ -1181,7 +1181,7 @@ for line in ingestion_log:
         processed_files[file_key] = entry
 ```
 
-**Critical: path normalization**. The log stores paths in mixed formats — some absolute (`/root/.hermes/commons/journals/ocas-custodian/2026-04-10/c0de6ffe.json`), some relative (`ocas-custodian/2026-04-10/c0de6ffe.json`). When `find_unprocessed()` generates absolute paths, they won't match relative log entries. Always add both forms to the processed set:
+**Critical: path normalization**. The log stores paths in mixed formats — some absolute (`{agent_root}/commons/journals/ocas-custodian/2026-04-10/c0de6ffe.json`), some relative (`ocas-custodian/2026-04-10/c0de6ffe.json`). When `find_unprocessed()` generates absolute paths, they won't match relative log entries. Always add both forms to the processed set:
 
 ```python
 processed = set()
@@ -1244,14 +1244,14 @@ for skill_dir in sorted(JOURNALS_ROOT.iterdir()):
 
 ### Ingestion log path format mismatch (critical)
 
-The `ingestion_log.jsonl` file stores file paths in **relative** format (e.g., `ocas-taste/2026-04-17/r.json`), but `find_unprocessed()` generates **absolute** paths (e.g., `/root/.hermes/commons/journals/ocas-taste/2026-04-17/r.json`). The comparison `str(f) not in processed` always fails because no absolute path matches any relative path in the processed set.
+The `ingestion_log.jsonl` file stores file paths in **relative** format (e.g., `ocas-taste/2026-04-17/r.json`), but `find_unprocessed()` generates **absolute** paths (e.g., `{agent_root}/commons/journals/ocas-taste/2026-04-17/r.json`). The comparison `str(f) not in processed` always fails because no absolute path matches any relative path in the processed set.
 
 **Symptoms**: Pipeline reports hundreds of "unprocessed" files that are actually already ingested. Each run re-processes everything, logging `signals_created: 0` duplicates.
 
 **Wrong** (absolute path never matches relative log entry):
 ```python
 # ingestion_log has: "file": "ocas-taste/2026-04-17/r.json"
-# find_unprocessed generates: "/root/.hermes/commons/journals/ocas-taste/2026-04-17/r.json"
+# find_unprocessed generates: "{agent_root}/commons/journals/ocas-taste/2026-04-17/r.json"
 if str(f) not in processed:  # Always True — never matches
     results.append(str(f))
 ```
@@ -1297,7 +1297,7 @@ Before running ingestion, always clean stale entries from `ingestion_log.jsonl`.
 ```python
 from datetime import datetime, timezone
 
-INGESTION_LOG = Path("/root/.hermes/commons/db/ocas-elephas/ingestion_log.jsonl")
+INGESTION_LOG = Path("{agent_root}/commons/db/ocas-elephas/ingestion_log.jsonl")
 lines = INGESTION_LOG.read_text().strip().split('\\n')
 kept = []
 for line in lines:
@@ -1464,7 +1464,7 @@ Each `execute_code` call runs in a completely isolated context — variables, im
 **Wrong** (trying to build state across calls):
 ```python
 # Call 1: define helpers
-DB_PATH = Path("/root/.hermes/commons/db/ocas-elephas/chronicle.lbug")
+DB_PATH = Path("{agent_root}/commons/db/ocas-elephas/chronicle.lbug")
 def _esc(s): ...
 
 # Call 2: use helpers — NameError! DB_PATH and _esc don't exist
@@ -1477,7 +1477,7 @@ conn = lb.Connection(lb.Database(str(DB_PATH)))
 write_file("commons/db/ocas-elephas/elephas_pipeline.py", full_script_content)
 
 # Run via terminal
-terminal("python3 /root/.hermes/commons/db/ocas-elephas/elephas_pipeline.py")
+terminal("python3 {agent_root}/commons/db/ocas-elephas/elephas_pipeline.py")
 ```
 
 **Or** — put everything in a single `execute_code` call with all helpers inline. Never assume cross-call state.
@@ -1500,7 +1500,7 @@ For reliable ingest+consolidate runs, use a self-contained Python script at `{ag
 8. Run immediate consolidation with `is_promotable()` confidence checking
 9. Write Action Journal and decision records
 
-A tested reference implementation exists at `/root/.hermes/commons/db/ocas-elephas/elephas_pipeline.py`. When running via cron or scheduled tasks, prefer writing the script to disk and executing via `terminal()` rather than multi-step `execute_code` calls (see sandbox isolation note above).
+A tested reference implementation exists at `{agent_root}/commons/db/ocas-elephas/elephas_pipeline.py`. When running via cron or scheduled tasks, prefer writing the script to disk and executing via `terminal()` rather than multi-step `execute_code` calls (see sandbox isolation note above).
 
 **Verification after each run:**
 ```cypher
@@ -1539,7 +1539,7 @@ CONTAINS is acceptable for *relevance resolution* (determining if a name is rela
 The existing `elephas_pipeline.py` handles journal ingestion + immediate consolidation only. For deep consolidation (memory + session ingestion), a companion script exists at:
 
 ```
-/root/.hermes/commons/db/ocas-elephas/elephas_deep_pipeline.py
+{agent_root}/commons/db/ocas-elephas/elephas_deep_pipeline.py
 ```
 
 This runs three phases:
@@ -1549,7 +1549,7 @@ This runs three phases:
 
 Run with:
 ```bash
-python3 /root/.hermes/commons/db/ocas-elephas/elephas_deep_pipeline.py
+python3 {agent_root}/commons/db/ocas-elephas/elephas_deep_pipeline.py
 ```
 
 **Known issue**: The script's existing-entity check in deep consolidation uses `CONTAINS` which causes false duplicates (see above). After running, always verify:
